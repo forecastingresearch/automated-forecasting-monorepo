@@ -39,3 +39,21 @@ BLOCKED_URLS = (r"forecastingresearch\.org", r"forecastingresearch\.substack\.co
 
 EXPERIMENT = "eeai"
 CONDITION = "baseline"
+
+# The economy model (eeai/model): its own definition and record, run files,
+# simulation summaries and page source, beside the survey's.
+MODEL_DATA = DATA / "model"
+MODEL_COMPONENTS = MODEL_DATA / "components.json"
+MODEL_BASELINES = MODEL_DATA / "baselines.csv"
+MODEL_SOURCE = MODEL_DATA / "source"
+MODEL_RESULTS = RESULTS / "model"
+MODEL_RUNS = MODEL_RESULTS / "runs"
+MODEL_SIMS = MODEL_RESULTS / "sims"
+MODEL_PAGE_DIR = HERE / "web-model"
+MODEL_EXPERIMENT = "eeai-model"
+# One call per model delivers all ~19,000 quantile sets, far more than any
+# other call (pi compacts the context as it fills; submit_cells keeps what was
+# delivered on disk), so it gets more turns and time than the Baseline
+# condition's 100 turns and 3 hours. Nothing else about the condition changes.
+MODEL_MAX_TURNS = 500
+MODEL_TIMEOUT = 12 * 3600

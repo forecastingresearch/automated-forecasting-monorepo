@@ -11,5 +11,10 @@ requires-python = ">=3.11"
 # (pip install -e ../../packages/forecaster); a build needs nothing.
 dependencies = []
 
+[project.optional-dependencies]
+# The economy model's simulation (python3 -m eeai model simulate) draws
+# millions of values per model; nothing else needs numpy.
+model = ["numpy"]
+
 [tool.setuptools]
-packages = ["eeai"]
+packages = ["eeai", "eeai.model"]

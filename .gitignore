@@ -61,6 +61,8 @@ dashboards/airo/.local/recent-news/
 # them by eeai/make_questions.py), the run files, the built site, and the
 # licensed fonts a box copies in beside the page's source.
 dashboards/eeai/eeai/data/source/
+# the economy model's hand-downloaded CPS extract and published figures (eeai/model/make_baselines.py)
+dashboards/eeai/eeai/data/model/source/
 dashboards/eeai/eeai/results/
 dashboards/eeai/eeai/site/
 dashboards/eeai/eeai/web/fonts/

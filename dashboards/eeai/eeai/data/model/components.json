@@ -1,0 +1,319 @@
+{
+  "instrument": "eeai-model-v0",
+  "source": "Initial economy model for the dashboard (FRI design note, 13 November 2026; wage layer added 18 November 2026)",
+  "base_year": "2025",
+  "years": ["2026", "2027", "2028", "2029", "2030", "2035", "2040", "2050"],
+  "quantiles": ["q05", "q25", "q50", "q75", "q95"],
+  "probs": [0.05, 0.25, 0.5, 0.75, 0.95],
+  "scenarios": {
+    "preamble": "We define three scenarios for different levels of AI development:\n\n- Slow progress\n- Moderate progress\n- Rapid progress\n\nIn the following scenarios, we consider the development of AI capabilities, not adoption. Regulation, social norms, or extended integration processes could all prevent the application of AI to all tasks of which it is capable.\n\nReasonable people may disagree with our characterization of what constitutes slow, moderate, or rapid AI progress. Or they may expect to see slow progress observed with some AI capabilities and moderate or fast progress in others. Nevertheless, we ask you to select which scenario, in sum, you feel best represents your views.\n\nWe consider a capability to have been achieved if there exists an AI system that can do it:\n\n* Inexpensively: with a computational cost not exceeding the salary of an appropriate 2025 human professional using the same amount of time to attempt the task.\n* Reliably: what this means is context-dependent, but typically we mean as reliably as, or more reliably than, a human or humans who do the same tasks professionally.\n\nThe scenarios refer to capability at the end of 2030.",
+    "footnote": "Level 5 autonomy is defined as, “can operate the vehicle on-road anywhere within its region of the world and under all road conditions in which a conventional vehicle can be reasonably operated by a typically skilled human driver. This means, for example, that there are no design-based weather, time-of-day, or geographical restrictions on where and when the ADS can operate the vehicle. However, there may be conditions not manageable by a driver in which the ADS would also be unable to complete a given trip (e.g., white-out snow storm, flooded roads, glare ice, etc.) until or unless the adverse conditions clear.”",
+    "items": [
+      {
+        "id": "slow",
+        "label": "Slow Progress",
+        "indicators": [
+          {
+            "name": "Summary",
+            "text": "By the end of 2030 in this slower-progress future, AI is a capable assisting technology for humans; it can automate basic research tasks, generate mediocre creative content, assist in vacation planning, and conduct relatively standard tasks that are currently (2025) performed by humans in homes and factories."
+          },
+          {
+            "name": "Research",
+            "text": "Researchers can benefit from literature reviews on almost any topic, written at the level of a capable PhD student, yet AI systems rarely produce novel and feasible solutions to difficult problems. As a result, genuine scientific breakthroughs remain almost entirely the result of human-run labs and grant cycles. Nevertheless, AI tools can support other research tasks (e.g., copy editing and data cleaning and analysis), freeing up time for researchers to focus on higher-impact tasks."
+          },
+          {
+            "name": "Problem-solving",
+            "text": "AI can handle roughly half of all freelance software-engineering jobs that would take an experienced human approximately 8 hours to complete in 2025, and if a company augments its customer service team with AI, it can expect the model to be able to resolve most complaints."
+          },
+          {
+            "name": "Creativity",
+            "text": "Writers enjoy a small productivity boost; models can turn out respectable short stories, but full-length novels still need heavy human rewriting to avoid plot holes or stylistic drift. AI can make a 3-minute song that humans would blindly judge to be of equal quality to a song released by a current (2025) major record label."
+          },
+          {
+            "name": "Agency",
+            "text": "At home, an AI system can draft emails, top up your online grocery cart, or collate news articles, and—so long as the task would take a human an hour or less and is well-scoped—it performs on par with a competent human assistant. With a few prompts, AI can create an itinerary and make bookings for a weeklong family vacation that feels curated by a discerning travel agent."
+          },
+          {
+            "name": "Robotics",
+            "text": "Self-driving car capabilities have advanced, but none have achieved true level-5 autonomy. Meanwhile, household robots can make a cup of coffee and unload and load a dishwasher in some modern homes—but they can’t do it as fast as most humans and they require a consistent environment and occasional human guidance. In advanced factories, autonomous systems can perform specific, repetitive tasks that require precision but little adaptability (e.g., wafer handling in semiconductor fabrication facilities)."
+          }
+        ]
+      },
+      {
+        "id": "moderate",
+        "label": "Moderate Progress",
+        "indicators": [
+          {
+            "name": "Summary",
+            "text": "By the end of 2030, in this middle-of-the-road future, AI is capable of being an effective collaborator across creative, corporate, and technical arenas."
+          },
+          {
+            "name": "Research",
+            "text": "R\\&D teams can lean on autonomous lab systems with human research assistants to make rapid advances in solar-cell chemistries or fusion-reactor components, although the inventions are improvements rather than revolutions."
+          },
+          {
+            "name": "Problem-solving",
+            "text": "Almost all freelance software-engineering jobs requiring 5 days or fewer of effort from experienced humans can be tackled by AI, and if a company wants to replace nearly all of its human customer service team with AI, it can probably get away with it, provided customers are not opposed in principle to AI customer service."
+          },
+          {
+            "name": "Creativity",
+            "text": "AI can draft 100-thousand-word novels solid enough for current (2025) mainstream publishers to release with typical levels of editing by a human publisher and can create a 5-minute song that humans would blindly judge to have breakout potential, exceptional emotional depth, and be of equal quality to the best songs released by current (2025) record labels."
+          },
+          {
+            "name": "Agency",
+            "text": "An AI agent can not only craft a well-curated weeklong vacation itinerary, but it can also make last-minute adjustments to bookings in response to unexpected weather, travel delays, or individual requests. Boardrooms are still run by people, but executive teams can delegate multiday operational projects to agentic software that reliably juggles vendors, budgets, and contingencies."
+          },
+          {
+            "name": "Robotics",
+            "text": "Level-5 robo-taxis that can go anywhere a human driver can go finally exist, as do robots that can navigate any home in the US, make a cup of coffee and unload and load a dishwasher as fast and reliably as most humans and without any human guidance. Robots in advanced factories can adapt to different tasks without extensive reprogramming or equipment changes, making real-time decisions, and have increased physical mobility."
+          }
+        ]
+      },
+      {
+        "id": "rapid",
+        "label": "Rapid Progress",
+        "indicators": [
+          {
+            "name": "Summary",
+            "text": "By the end of 2030, in the rapid-progress world, AI systems are capable of competing with the best human minds and workers, and can surpass them. Human creativity and leadership remain valued, but mostly for setting high-level vision—day-to-day execution can be left to silicon-based systems."
+          },
+          {
+            "name": "Research",
+            "text": "Autonomous researchers can collapse years-long research timelines into days, weeks, or months, creating game-changing technologies, such as materials that revolutionize energy storage, or bespoke cancer cures."
+          },
+          {
+            "name": "Problem-solving",
+            "text": "No human freelance software engineer can outperform AI. The same goes for customer service (e.g., call center and support chat), paralegal, and administrative workers (e.g., bookkeepers or scheduling assistants)."
+          },
+          {
+            "name": "Creativity",
+            "text": "Models have become so capable that AI can create an album of the same caliber as the Grammy Album of the Year. Additionally, a single AI agent can generate a Pulitzer- (or Booker Prize-) caliber novel according to current (2025) standards, adapt the book into an engaging two-hour movie,"
+          },
+          {
+            "name": "Agency",
+            "text": "negotiate the resulting book and movie contracts, and launch the marketing campaigns for both while its sibling agents manage the book publishing company and movie studio at the level of highly competent CEOs."
+          },
+          {
+            "name": "Robotics",
+            "text": "Not only do Level-5 robo-taxis exist, but they are, on average, 99.9% safer than human-piloted cars and can venture anywhere off-road that a competent human driver can. Meanwhile, robots can navigate an arbitrary home anywhere in the world, make a cup of the most popular local hot beverage, clean and put away the dishes according to the local custom, fix any plumbing issues that arise while they’re doing the dishes--and they can do it all faster and more reliably than most humans and without human guidance. Robots in advanced factories can autonomously perform the full range of tasks requiring the highest levels of dexterity, coordination, and adaptive decision-making."
+          }
+        ]
+      }
+    ]
+  },
+  "industries": [
+    {"id": "agriculture", "name": "Agriculture, forestry, fishing and hunting", "naics": "11"},
+    {"id": "mining", "name": "Mining", "naics": "21"},
+    {"id": "utilities", "name": "Utilities", "naics": "22"},
+    {"id": "construction", "name": "Construction", "naics": "23"},
+    {"id": "durable", "name": "Durable goods manufacturing", "naics": "33, 321, 327"},
+    {"id": "nondurable", "name": "Nondurable goods manufacturing", "naics": "31, 32 (except 321, 327)"},
+    {"id": "wholesale", "name": "Wholesale trade", "naics": "42"},
+    {"id": "retail", "name": "Retail trade", "naics": "44, 45"},
+    {"id": "transportation", "name": "Transportation and warehousing", "naics": "48, 49"},
+    {"id": "information", "name": "Information", "naics": "51"},
+    {"id": "finance", "name": "Finance and insurance", "naics": "52"},
+    {"id": "real_estate", "name": "Real estate and rental and leasing", "naics": "53"},
+    {"id": "professional", "name": "Professional, scientific and technical services", "naics": "54"},
+    {"id": "management", "name": "Management of companies", "naics": "55"},
+    {"id": "administrative", "name": "Administrative and waste management services", "naics": "56"},
+    {"id": "education", "name": "Educational services (private)", "naics": "61"},
+    {"id": "health", "name": "Health care and social assistance", "naics": "62"},
+    {"id": "arts", "name": "Arts, entertainment and recreation", "naics": "71"},
+    {"id": "accommodation", "name": "Accommodation and food services", "naics": "72"},
+    {"id": "other_services", "name": "Other services", "naics": "81"},
+    {"id": "federal", "name": "Federal government", "naics": "n/a"},
+    {"id": "state_local", "name": "State and local government", "naics": "n/a"}
+  ],
+  "occupations": [
+    {"id": "management", "name": "Management", "soc": "11"},
+    {"id": "business", "name": "Business and financial operations", "soc": "13"},
+    {"id": "computer", "name": "Computer and mathematical", "soc": "15"},
+    {"id": "engineering", "name": "Architecture and engineering", "soc": "17"},
+    {"id": "science", "name": "Life, physical and social science", "soc": "19"},
+    {"id": "community", "name": "Community and social service", "soc": "21"},
+    {"id": "legal", "name": "Legal", "soc": "23"},
+    {"id": "education", "name": "Education and library", "soc": "25"},
+    {"id": "arts", "name": "Arts, design, entertainment, sports and media", "soc": "27"},
+    {"id": "practitioners", "name": "Healthcare practitioners", "soc": "29"},
+    {"id": "healthcare_support", "name": "Healthcare support", "soc": "31"},
+    {"id": "protective", "name": "Protective service", "soc": "33"},
+    {"id": "food", "name": "Food preparation and serving", "soc": "35"},
+    {"id": "grounds", "name": "Building and grounds maintenance", "soc": "37"},
+    {"id": "personal_care", "name": "Personal care and service", "soc": "39"},
+    {"id": "sales", "name": "Sales", "soc": "41"},
+    {"id": "office", "name": "Office and administrative support", "soc": "43"},
+    {"id": "farming", "name": "Farming, fishing and forestry", "soc": "45"},
+    {"id": "construction", "name": "Construction and extraction", "soc": "47"},
+    {"id": "repair", "name": "Installation, maintenance and repair", "soc": "49"},
+    {"id": "production", "name": "Production", "soc": "51"},
+    {"id": "transport", "name": "Transportation and material moving", "soc": "53"}
+  ],
+  "blocks": [
+    {"id": "output", "name": "Output", "rationale_per": "industry"},
+    {"id": "capital", "name": "Capital", "rationale_per": null},
+    {"id": "labor", "name": "Labor", "rationale_per": null},
+    {"id": "mix", "name": "Occupation mix", "rationale_per": "industry"},
+    {"id": "wages", "name": "Wages", "rationale_per": null},
+    {"id": "automation", "name": "Automation", "rationale_per": "occupation"},
+    {"id": "checks", "name": "Direct forecasts", "rationale_per": null}
+  ],
+  "components": [
+    {"symbol": "Q", "block": "output", "per": "industry", "name": "Real value added",
+     "text": "Real value added of {industry} in {year}: the industry's output net of the inputs it buys, with price changes removed, as an index with the 2025 annual value = 1 (1.10 means 10% above 2025).",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "BEA, GDP by Industry: chain-type quantity index for value added, annual, rebased to 2025 = 1"},
+    {"symbol": "P", "block": "output", "per": "industry", "name": "Price of value added",
+     "text": "Price of value added of {industry} in {year}: the industry's dollar value added divided by its real value added, as an index with 2025 = 1.",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "BEA, GDP by Industry: chain-type price index for value added, annual, rebased to 2025 = 1"},
+    {"symbol": "pi", "block": "output", "per": "industry", "name": "Labor productivity",
+     "text": "Labor productivity of {industry} in {year}: real value added per hour actually worked, as an index with 2025 = 1.",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "Real value added (BEA) divided by hours actually worked in the industry (CPS microdata, government employees assigned to government)"},
+    {"symbol": "h", "block": "labor", "per": "industry", "name": "Hours per employed person",
+     "text": "Hours actually worked per employed person per year in {industry} in {year} (CPS; every government employee counted in federal or state and local government).",
+     "unit": "hours per year", "transform": "log", "bounds": [0, 4000], "decimals": 0,
+     "source": "CPS microdata: annual hours actually worked divided by employment, by industry"},
+    {"symbol": "K", "block": "capital", "per": "industry", "name": "Capital input",
+     "text": "Capital input of {industry} in {year}: the flow of services from its buildings, equipment, software and data centers, valued at rental cost, as an index with 2025 = 1.",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "BEA-BLS Integrated Industry-Level Production Account: capital input by industry"},
+    {"symbol": "lambda", "block": "capital", "per": "industry", "name": "Labor share",
+     "text": "Labor share of {industry} in {year}: compensation of employees as a share of the industry's nominal value added, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3,
+     "source": "BEA, GDP by Industry: compensation of employees divided by value added"},
+    {"symbol": "sigma", "block": "mix", "per": "cell", "name": "Occupation mix",
+     "text": "Share of the employed people in {industry} whose job is in {occupation} in {year}, from 0 to 1 (the 22 shares of an industry are rescaled to sum to 1).",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4,
+     "source": "CPS public-use microdata, tabulated by FRI with a fixed rule (government employees assigned to government)"},
+    {"symbol": "u", "block": "labor", "per": "occupation", "name": "Unemployment rate by occupation",
+     "text": "Unemployment rate in {year} among people whose last job was in {occupation}: unemployed divided by employed plus unemployed, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4,
+     "source": "CPS annual averages, table 25: unemployed persons by occupation"},
+    {"symbol": "n", "block": "labor", "per": "scalar", "name": "Unemployed with no occupation",
+     "text": "Unemployed people in {year} not counted in any of the 22 occupation groups (almost all with no previous work experience), as a share of the labor force, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4,
+     "source": "CPS: total unemployed minus the 22 occupation rows of table 25, divided by the labor force"},
+    {"symbol": "Pop", "block": "labor", "per": "scalar", "name": "Population 16 and over",
+     "text": "Civilian noninstitutional population aged 16 and over in {year}, annual average, in millions.",
+     "unit": "millions", "transform": "log", "bounds": [0, 1000], "decimals": 1,
+     "source": "CPS civilian noninstitutional population (FRED: CNP16OV)"},
+    {"symbol": "omega", "block": "wages", "per": "occupation", "name": "Median weekly earnings by occupation",
+     "text": "Median weekly earnings of full-time wage and salary workers in {occupation} in {year}, annual average, in current dollars.",
+     "unit": "US$ per week, current prices", "transform": "log", "bounds": [0, 100000], "decimals": 0,
+     "source": "CPS annual table 39: median weekly earnings of full-time wage and salary workers by occupation"},
+    {"symbol": "p10", "block": "wages", "per": "scalar", "name": "10th percentile of weekly earnings",
+     "text": "10th percentile of usual weekly earnings of all full-time wage and salary workers in {year}, the mean of the four quarters, in current dollars.",
+     "unit": "US$ per week, current prices", "transform": "log", "bounds": [0, 100000], "decimals": 0,
+     "source": "BLS Usual Weekly Earnings release, table 5"},
+    {"symbol": "p50", "block": "wages", "per": "scalar", "name": "Median weekly earnings",
+     "text": "Median usual weekly earnings of all full-time wage and salary workers in {year}, the mean of the four quarters, in current dollars.",
+     "unit": "US$ per week, current prices", "transform": "log", "bounds": [0, 100000], "decimals": 0,
+     "source": "BLS Usual Weekly Earnings release, table 5"},
+    {"symbol": "p90", "block": "wages", "per": "scalar", "name": "90th percentile of weekly earnings",
+     "text": "90th percentile of usual weekly earnings of all full-time wage and salary workers in {year}, the mean of the four quarters, in current dollars.",
+     "unit": "US$ per week, current prices", "transform": "log", "bounds": [0, 100000], "decimals": 0,
+     "source": "BLS Usual Weekly Earnings release, table 5"},
+    {"symbol": "ECI", "block": "wages", "per": "scalar", "name": "Employment Cost Index, wages and salaries",
+     "text": "Employment Cost Index for wages and salaries (the pay of a fixed mix of jobs) in {year}, the mean of the four quarters, as an index with 2025 = 1.",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "BLS Employment Cost Index, wages and salaries (FRED: CIU1020000000000I)"},
+    {"symbol": "C", "block": "wages", "per": "scalar", "name": "Consumer prices (PCE price index)",
+     "text": "Price index for personal consumption expenditures (the prices households pay) in {year}, annual average, as an index with 2025 = 1.",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3,
+     "source": "BEA PCE price index (FRED: PCEPI)"},
+    {"symbol": "sA", "block": "automation", "per": "occupation", "name": "Work done with AI help",
+     "text": "Share of the work of {occupation} in {year} done by a human with AI help, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3, "resolvable": false,
+     "source": "No official source"},
+    {"symbol": "sM", "block": "automation", "per": "occupation", "name": "Work done by machines alone",
+     "text": "Share of the work of {occupation} in {year} done by a machine alone, with human oversight, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3, "resolvable": false,
+     "source": "No official source"},
+    {"symbol": "rA", "block": "automation", "per": "occupation", "name": "Human time with AI help",
+     "text": "Human time needed in {year} for work of {occupation} done with AI help, relative to a human doing the same work alone (0.6 means 40% less time).",
+     "unit": "ratio", "transform": "log", "bounds": [0, 10], "decimals": 2, "resolvable": false,
+     "source": "No official source"},
+    {"symbol": "rM", "block": "automation", "per": "occupation", "name": "Oversight time for machine work",
+     "text": "Human oversight time needed in {year} when a machine does work of {occupation} alone, relative to a human doing the same work alone.",
+     "unit": "ratio", "transform": "log", "bounds": [0, 10], "decimals": 2, "resolvable": false,
+     "source": "No official source"},
+    {"symbol": "x_gdp", "block": "checks", "per": "scalar", "name": "Real GDP growth (direct)", "cross_check": "gdp_growth",
+     "text": "US real GDP growth in {year}, annual average over annual average, in percent. For 2035, 2040 and 2050: the average annual growth rate since the previous year asked (2030, 2035, 2040).",
+     "unit": "% per year", "transform": "none", "bounds": [-50, 100], "decimals": 2,
+     "source": "BEA national accounts, real GDP (FRED: GDPCA)"},
+    {"symbol": "x_unemployment", "block": "checks", "per": "scalar", "name": "Unemployment rate (direct)", "cross_check": "unemployment_rate",
+     "text": "US unemployment rate in {year}, annual average, in percent.",
+     "unit": "%", "transform": "none", "bounds": [0, 100], "decimals": 2,
+     "source": "CPS annual average (FRED: UNRATE)"},
+    {"symbol": "x_lfpr", "block": "checks", "per": "scalar", "name": "Labor force participation rate (direct)", "cross_check": "lfpr",
+     "text": "US labor force participation rate in {year}, annual average, in percent.",
+     "unit": "%", "transform": "none", "bounds": [0, 100], "decimals": 2,
+     "source": "CPS annual average (FRED: CIVPART)"},
+    {"symbol": "x_productivity", "block": "checks", "per": "scalar", "name": "Labor productivity growth (direct)", "cross_check": "lp_growth",
+     "text": "Growth of US labor productivity (real GDP per hour actually worked, whole economy) in {year}, in percent. For 2035, 2040 and 2050: the average annual growth rate since the previous year asked.",
+     "unit": "% per year", "transform": "none", "bounds": [-50, 100], "decimals": 2,
+     "source": "BEA real GDP divided by CPS total hours (FRI calculation)"},
+    {"symbol": "x_tfp", "block": "checks", "per": "scalar", "name": "TFP growth (direct)", "cross_check": "tfp_growth",
+     "text": "US total factor productivity growth in {year} (output growth minus the share-weighted growth of capital input and hours, whole economy), in percent. For 2035, 2040 and 2050: the average annual growth rate since the previous year asked.",
+     "unit": "% per year", "transform": "none", "bounds": [-50, 100], "decimals": 2,
+     "source": "BEA-BLS integrated account, aggregated by FRI's formula"}
+  ],
+  "baselines": [
+    {"symbol": "N0", "per": "industry", "name": "Nominal value added, 2025",
+     "text": "Nominal value added of {industry} in 2025, in billions of current dollars.",
+     "unit": "US$ billions", "transform": "log", "bounds": [0, 100000], "decimals": 1},
+    {"symbol": "H0", "per": "industry", "name": "Hours worked, 2025",
+     "text": "Total hours actually worked in {industry} in 2025 (CPS, civilians, government employees in government), in millions of hours.",
+     "unit": "millions of hours", "transform": "log", "bounds": [0, 1000000], "decimals": 0},
+    {"symbol": "E0", "per": "industry", "name": "Employment, 2025",
+     "text": "Employed persons in {industry} in 2025, annual average (CPS, government employees in government), in millions.",
+     "unit": "millions", "transform": "log", "bounds": [0, 1000], "decimals": 2},
+    {"symbol": "lambda0", "per": "industry", "name": "Labor share, 2025",
+     "text": "Labor share of {industry} in 2025: compensation of employees divided by nominal value added, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3},
+    {"symbol": "sigma0", "per": "cell", "name": "Occupation mix, 2025",
+     "text": "Share of the employed people in {industry} whose job is in {occupation} in 2025, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4},
+    {"symbol": "u0", "per": "occupation", "name": "Unemployment rate by occupation, 2025",
+     "text": "Unemployment rate in 2025 among people whose last job was in {occupation}, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4},
+    {"symbol": "n0", "per": "scalar", "name": "Unemployed with no occupation, 2025",
+     "text": "Unemployed people in 2025 not counted in any of the 22 occupation groups, as a share of the labor force, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 4},
+    {"symbol": "Pop0", "per": "scalar", "name": "Population 16 and over, 2025",
+     "text": "Civilian noninstitutional population aged 16 and over in 2025, annual average, in millions.",
+     "unit": "millions", "transform": "log", "bounds": [0, 1000], "decimals": 1},
+    {"symbol": "omega0", "per": "occupation", "name": "Median weekly earnings by occupation, 2025",
+     "text": "Median weekly earnings of full-time wage and salary workers in {occupation} in 2025, in dollars.",
+     "unit": "US$ per week", "transform": "log", "bounds": [0, 100000], "decimals": 0},
+    {"symbol": "p10_0", "per": "scalar", "name": "10th percentile of weekly earnings, 2025",
+     "text": "10th percentile of usual weekly earnings of full-time wage and salary workers in 2025, mean of the four quarters, in dollars.",
+     "unit": "US$ per week", "transform": "log", "bounds": [0, 100000], "decimals": 0},
+    {"symbol": "p50_0", "per": "scalar", "name": "Median weekly earnings, 2025",
+     "text": "Median usual weekly earnings of full-time wage and salary workers in 2025, mean of the four quarters, in dollars.",
+     "unit": "US$ per week", "transform": "log", "bounds": [0, 100000], "decimals": 0},
+    {"symbol": "p90_0", "per": "scalar", "name": "90th percentile of weekly earnings, 2025",
+     "text": "90th percentile of usual weekly earnings of full-time wage and salary workers in 2025, mean of the four quarters, in dollars.",
+     "unit": "US$ per week", "transform": "log", "bounds": [0, 100000], "decimals": 0},
+    {"symbol": "ECI0", "per": "scalar", "name": "Employment Cost Index, 2025",
+     "text": "Employment Cost Index for wages and salaries in 2025, mean of the four quarters, relative to the 2025 annual value (1 by definition, unless you expect revisions).",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3},
+    {"symbol": "C0", "per": "scalar", "name": "Consumer prices, 2025",
+     "text": "PCE price index in 2025, annual average, relative to the 2025 annual value (1 by definition, unless you expect revisions).",
+     "unit": "index, 2025 = 1", "transform": "log", "bounds": [0, 100], "decimals": 3},
+    {"symbol": "sA0", "per": "occupation", "name": "Work done with AI help, 2025",
+     "text": "Share of the work of {occupation} in 2025 done by a human with AI help, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3},
+    {"symbol": "sM0", "per": "occupation", "name": "Work done by machines alone, 2025",
+     "text": "Share of the work of {occupation} in 2025 done by a machine alone, with human oversight, from 0 to 1.",
+     "unit": "share, 0 to 1", "transform": "logit", "bounds": [0, 1], "decimals": 3},
+    {"symbol": "rA0", "per": "occupation", "name": "Human time with AI help, 2025",
+     "text": "Human time needed in 2025 for work of {occupation} done with AI help, relative to a human doing it alone.",
+     "unit": "ratio", "transform": "log", "bounds": [0, 10], "decimals": 2},
+    {"symbol": "rM0", "per": "occupation", "name": "Oversight time for machine work, 2025",
+     "text": "Human oversight time needed in 2025 when a machine does work of {occupation} alone, relative to a human doing it alone.",
+     "unit": "ratio", "transform": "log", "bounds": [0, 10], "decimals": 2}
+  ]
+}

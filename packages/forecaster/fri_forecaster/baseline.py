@@ -50,14 +50,17 @@ def research_tools():
 
 
 def run(model, prompt, *, workdir, cell_schema, key_fields, allowed_keys, submit_forecast, submit_cells=None,
-        env=None, timeout=TIMEOUT, cwd=None, retries=0, pi=None, harness_run=None):
+        env=None, timeout=TIMEOUT, cwd=None, retries=0, pi=None, harness_run=None, max_turns=MAX_TURNS):
     """One Baseline call. `model` is a panel row's `model`; `submit_cells` and
     `submit_forecast` are the dashboard's two answer tools as {description,
     parameters} (the pieces along the way, and the final answer); the cells
     they carry are `cell_schema`, keyed by `key_fields`, and only
     `allowed_keys` are kept. A dashboard whose answer fits one call leaves
     `submit_cells` out, and a tool without `parameters` keeps the harness's
-    own. `pi`: another pi than the harness's default. -> harness.run's result."""
+    own. `pi`: another pi than the harness's default. `max_turns` and
+    `timeout`: a dashboard whose one call delivers far more than any other
+    (EEAI's economy model, thousands of cells) raises them; everything else
+    about the condition stays. -> harness.run's result."""
     if harness_run is None:
         from . import harness
         harness_run = harness.run
@@ -74,4 +77,4 @@ def run(model, prompt, *, workdir, cell_schema, key_fields, allowed_keys, submit
                        tool_parameters={n: s["parameters"] for n, s in specs.items() if s.get("parameters")},
                        research_tools=tuple(t["name"] for t in research), cells_tool=bool(submit_cells),
                        thinking=panel.reasoning_for(model), timeout=timeout, env=env, retries=retries,
-                       **({"pi": pi} if pi else {}), **LOOP)
+                       **({"pi": pi} if pi else {}), **dict(LOOP, max_turns=max_turns))

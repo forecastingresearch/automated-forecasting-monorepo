@@ -216,6 +216,7 @@ function render() {
       h("div", { class: "top" },
         h("a", { href: "https://forecastingresearch.org", title: "Forecasting Research Institute" }, h("img", { class: "brand-logo", src: "web/img/fri-logo.svg", alt: "Forecasting Research Institute", width: 231, height: 37 })),
         download()),
+      h("nav", { class: "pages", "aria-label": "EEAI pages" }, h("a", { href: "index.html", "aria-current": "page" }, "Survey"), h("a", { href: "model.html" }, "Economy model")),
       h("h1", {}, "EEAI (Economic Effects of AI)"),
       h("p", { class: "lede" }, "A panel of frontier AI models takes FRI's Economic Effects of AI survey: where the US economy is heading by 2030 and 2050, and how that depends on how fast AI improves."),
       L && h("p", { class: "meta" }, `Latest run ${L.date} · ${L.models.join(", ")} · each model searches the web before answering`),

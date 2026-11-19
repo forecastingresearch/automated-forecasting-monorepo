@@ -271,10 +271,12 @@ class TestRunAndBuild(unittest.TestCase):
             site = Path(tmp) / "site"
             import contextlib, io
             with contextlib.redirect_stdout(io.StringIO()):
-                build.main(SimpleNamespace(runs=str(runs), out=None, json=None, site=str(site)))
-            # (a box that has the licensed fonts under web/fonts gets them too)
+                build.main(SimpleNamespace(runs=str(runs), out=None, json=None, site=str(site),
+                                           model_sims=str(Path(tmp) / "no-sims"), model_runs=None))
+            # (a box that has the licensed fonts under web/fonts gets them too; the economy model's
+            # page is beside the survey's, with its download once it has a simulation)
             have = sorted(str(p.relative_to(site)) for p in site.rglob("*") if p.is_file() and "fonts" not in p.parts)
-            self.assertEqual(have, ["eeai-data.zip", "index.html", "web/img/fri-logo.svg"])
+            self.assertEqual(have, ["eeai-data.zip", "index.html", "model.html", "web/img/fri-logo.svg"])
             page = (site / "index.html").read_text(encoding="utf-8")
             self.assertIn('"download": "eeai-data.zip"', page)
             self.assertIn("web/img/fri-logo.svg", page)

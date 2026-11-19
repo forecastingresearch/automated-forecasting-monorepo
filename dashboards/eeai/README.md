@@ -19,8 +19,11 @@ eeai/
   build.py             the run files -> the page
   export.py            the download (eeai-data.zip)
   synthetic.py         made-up answers, for the page and the tests
-  data/                questions.json, history.csv (tracked); source/ (FRI's documents, not tracked)
+  model/               the economy model (v0): definition, instrument, run, simulation, its page's data
+  data/                questions.json, history.csv (tracked); source/ (FRI's documents, not tracked);
+                       model/ (components.json, baselines.csv; model/source/ not tracked)
   web/                 the page's source: chunks, manifest, img/; fonts/ (licensed, not tracked)
+  web-model/           the economy model's page (model.html)
   tests/               pytest eeai/tests
   results/             the run files (not tracked)
   site/                the built site (not tracked)
@@ -125,6 +128,75 @@ forecasts conditional on AI progress (the three scenarios, with no
 unconditional line). `eeai-data.zip` (`eeai/export.py`) holds the forecasts, rationales and AI progress answers as CSV,
 the questions, the history and the run files. The page's "Download data"
 buttons serve it.
+
+## The economy model (v0)
+
+A second instrument, beside the survey, that will eventually replace it. The
+design is FRI's note "Initial economy model for the dashboard" (13 and 18
+November 2026). The panel forecasts the components of an accounting model of
+the US economy, and every top-line outcome is computed from them:
+
+- **Components.** 22 industries and 22 occupation groups. By industry: real
+  value added, its price, labor productivity, hours per worker, capital input,
+  the labor share. The occupation mix (484 cells). By occupation: unemployment,
+  median earnings, and four automation components. Population, the
+  no-occupation unemployed, the earnings deciles, the ECI and the PCE price
+  index. Five direct forecasts as cross-checks. That is 760 components, asked
+  for 3 scenarios and 8 years (2026 to 2030, 2035, 2040, 2050) as five
+  quantiles each, plus 711 baselines for 2025: 18,951 quantile sets per model,
+  and the scenario probabilities.
+- **Definition.** `eeai/data/model/components.json` is written by hand and
+  compact (one template per kind of component); `eeai/model/spec.py` expands
+  it. The scenarios are copied from the survey, verbatim.
+- **One call per model.** The agent delivers in pieces with submit_cells; pi
+  compacts the conversation as it fills, and each piece is kept on disk, so the
+  answer is not limited by the context. The call gets 500 turns and 12 hours
+  (`config.MODEL_MAX_TURNS`, `MODEL_TIMEOUT`); everything else is the Baseline
+  condition. A retry asks only for the missing components. `--split scenario`
+  or `--split block` asks in a few calls instead.
+- **Simulation.** `eeai/model/simulate.py`: each quantile set is fitted with a
+  five-term metalog (Keelin 2016) on a log or log-odds scale, falling back to
+  straight lines in normal scores where the metalog is not increasing; 10,000
+  independent worlds per scenario and model; the identities
+  (`eeai/model/identities.py`); the unconditional forecast mixes a model's
+  scenarios by its probabilities; the ensemble mixes the models with equal
+  weight. Growth is the annual rate: year on year to 2030, then the average
+  annual rate since the previous date shown.
+- **The page.** `model.html` beside the survey's `index.html`, linked from both
+  headers, built from `eeai/web-model/`, with its own download
+  (`eeai-model-data.zip`). The survey page's data is unchanged.
+
+```bash
+python3 -m eeai model prompt                           # each call's size and token estimate (--show: the prompt)
+python3 -m eeai model baselines --template             # data/model/source/published_2025.csv, to fill in
+python3 -m eeai model baselines                        # CPS extract + published figures -> data/model/baselines.csv
+python3 -m eeai model run --synthetic --out DIR        # made-up answers
+python3 -m eeai model run --smoke                      # PAID: the top model only
+python3 -m eeai model simulate RUN_FILE                # -> eeai/results/model/sims/ (needs: pip install -e '.[model]')
+python3 -m eeai build                                  # both pages
+```
+
+**The 2025 record, by hand.** Download an IPUMS CPS extract (cps.ipums.org)
+of the twelve 2025 basic monthly samples, as CSV, with YEAR, MONTH, WTFINL,
+AGE, EMPSTAT, CLASSWKR, IND, OCC and AHRSWORKT, to
+`eeai/data/model/source/cps_2025.csv` (not tracked). Fill in
+`source/published_2025.csv` from BEA and BLS, then run `model baselines`. A
+real run refuses to start without `data/model/baselines.csv`; synthetic runs
+use a made-up placeholder economy.
+
+**Still open for the model.**
+
+- No real run yet, and no `baselines.csv` yet. The checks of the 2025
+  identities against official totals pass on the placeholder economy only.
+- The industry and occupation code ranges in `make_baselines.py` were written
+  without the Census code lists at hand; check them against the lists before
+  trusting the tabulation.
+- How much compaction costs in coherence within one call is for the first run
+  to show. If it hurts, `--split`, or a lookup tool for the definitions (an
+  engine change).
+- One call is roughly 880,000 output tokens per model (`model prompt`
+  estimates it); what that costs is for a smoke run to measure.
+- No scoring yet.
 
 ## Open
 

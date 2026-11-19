@@ -179,9 +179,15 @@ def main(args):
                              assets={f"web/{sub}": config.PAGE_DIR / sub for sub in ("img", "fonts")}) / "index.html"
     if runs:
         export.bundle(out.with_name(export.NAME), survey, runs, args.runs)
+    # The economy model's page beside the survey's (eeai/model/build.py), linked from both headers.
+    from .model import build as model_build
+    model = model_build.write(out.parent, getattr(args, "model_sims", None), getattr(args, "model_runs", None))
     if args.json:
         Path(args.json).write_text(json.dumps(blob, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{out}: {len(runs)} run(s), {len(blob['questions'])} questions"
           + (f", latest {blob['latest']['date']} ({', '.join(blob['latest']['models'])})" if blob["latest"] else ", no runs yet")
           + (" -- SYNTHETIC DATA" if blob["synthetic"] else ""))
+    print(f"{out.with_name('model.html')}: "
+          + (f"latest {model['latest']['date']} ({', '.join(model['latest']['models'])})" if model["latest"] else "no simulation yet")
+          + (" -- SYNTHETIC DATA" if model["synthetic"] else ""))
     return 0

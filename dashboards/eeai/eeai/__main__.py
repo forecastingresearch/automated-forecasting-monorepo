@@ -44,14 +44,82 @@ def main(argv=None):
     b.add_argument("--out", help="write only the page, to this file (and the download beside it)")
     b.add_argument("--json", help="also write the page's data here")
     b.add_argument("--site", help="the site folder to write (default eeai/site): index.html, the download, web/")
+    b.add_argument("--model-sims", help="the economy model's summaries (default eeai/results/model/sims)")
+    b.add_argument("--model-runs", help="the economy model's run files, for its download (default eeai/results/model/runs)")
+    _model_parser(sub)
     args = ap.parse_args(argv)
     if args.cmd == "prompt":
         return cmd_prompt(args)
     if args.cmd == "run":
         from . import run
         return run.main(args)
+    if args.cmd == "model":
+        return cmd_model(args)
     from . import build
     return build.main(args)
+
+
+def _model_parser(sub):
+    from .model.instrument import SPLITS
+    splits = [s for s in SPLITS if s]
+    m = sub.add_parser("model", help="the economy model: prompt, run, simulate, baselines")
+    ms = m.add_subparsers(dest="model_cmd", required=True)
+    p = ms.add_parser("prompt", help="print each call's prompt size and token estimate (--show: the prompt); calls nothing")
+    p.add_argument("--today")
+    p.add_argument("--split", choices=splits, help="a few calls per model instead of one")
+    p.add_argument("--show", action="store_true", help="print the prompts themselves")
+    r = ms.add_parser("run", help="ask the panel (PAID unless --synthetic)")
+    r.add_argument("--smoke", action="store_true", help="the panel's top model only")
+    r.add_argument("--models", help="panel members by key or label, comma-separated")
+    r.add_argument("--resume", metavar="RUN_ID", help="add the models an earlier run file lacks")
+    r.add_argument("--split", choices=splits, help="a few calls per model instead of one")
+    r.add_argument("--workers", type=int, default=4)
+    r.add_argument("--retries", type=int, default=1, help="extra calls, for the missing components only")
+    r.add_argument("--out", help="directory for the run file (default eeai/results/model/runs)")
+    r.add_argument("--today", help="the run date, YYYY-MM-DD (default today, UTC)")
+    r.add_argument("--synthetic", action="store_true", help="no calls: made-up answers (needs --out)")
+    r.add_argument("--allow-ungrounded", action="store_true", help="run without TAVILY_API_KEY")
+    s = ms.add_parser("simulate", help="a run file -> the summaries the page draws (needs numpy)")
+    s.add_argument("run_file")
+    s.add_argument("--worlds", type=int, default=10000, help="simulated worlds per scenario and model")
+    s.add_argument("--seed", type=int, default=20261118)
+    s.add_argument("--out", help="directory for the summary (default eeai/results/model/sims)")
+    b = ms.add_parser("baselines", help="the hand-downloaded CPS extract + published figures -> data/model/baselines.csv")
+    b.add_argument("--cps", help="the IPUMS CPS extract, CSV (default data/model/source/cps_2025.csv)")
+    b.add_argument("--published", help="the published 2025 figures, CSV (default data/model/source/published_2025.csv)")
+    b.add_argument("--template", action="store_true", help="write a blank published-figures file to fill in, and stop")
+    b.add_argument("--out", help="where to write (default data/model/baselines.csv)")
+
+
+def cmd_model(args):
+    from .model import spec as M
+    if args.model_cmd == "prompt":
+        from .model import instrument as I, run as mrun
+        spec = M.load()
+        today = date.fromisoformat(args.today) if args.today else datetime.now(timezone.utc).date()
+        record = mrun.record_for(True, spec)
+        if not I.load_baselines():
+            print("##### data/model/baselines.csv is missing: the prompt below offers the PLACEHOLDER economy #####")
+        total = {"input_tokens": 0, "output_tokens": 0}
+        for call in I.calls(spec, args.split):
+            prompt, keys = I.build_prompt(spec, call, record, today)
+            est = I.estimate(spec, call, prompt)
+            total = {k: total[k] + est[k] for k in total}
+            print(f"##### call {call['id']}: {I.n_sets(spec, call)} quantile sets, {len(keys)} cells, "
+                  f"{est['prompt_chars']:,} chars, ~{est['input_tokens']:,} prompt tokens, ~{est['output_tokens']:,} output tokens #####")
+            if args.show:
+                print(prompt)
+        print(f"##### per model: ~{total['input_tokens']:,} prompt tokens (before research and the context each turn re-reads), "
+              f"~{total['output_tokens']:,} output tokens; turn limit {config.MODEL_MAX_TURNS}, timeout {config.MODEL_TIMEOUT // 3600} h #####")
+        return 0
+    if args.model_cmd == "run":
+        from .model import run as mrun
+        return mrun.main(args)
+    if args.model_cmd == "simulate":
+        from .model import simulate
+        return simulate.main(args)
+    from .model import make_baselines
+    return make_baselines.main(args)
 
 
 if __name__ == "__main__":

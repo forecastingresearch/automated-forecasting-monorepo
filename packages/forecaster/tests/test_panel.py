@@ -159,6 +159,12 @@ class TestBaseline(unittest.TestCase):
                          {"min_research": 0, "floor_counts": "returned", "withhold_final": True,
                           "warn_missing_keys": False, "max_turns": 100})
         self.assertEqual(set(seen["tool_parameters"]), {"web_search", "read_page", "submit_cells", "submit_forecast"})
+        # A dashboard may raise the turn limit; the rest of the loop stays the condition's.
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline.run("openai/responses/gpt-6-astra", "P", workdir=tmp, cell_schema={"type": "object"},
+                         key_fields=["question_id"], allowed_keys=["a"], submit_cells=tool, submit_forecast=tool,
+                         cwd=tmp, harness_run=fake, max_turns=500, timeout=7)
+        self.assertEqual((seen["max_turns"], seen["timeout"], seen["min_research"]), (500, 7, 0))
 
 
 if __name__ == "__main__":
