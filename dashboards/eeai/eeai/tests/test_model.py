@@ -326,6 +326,38 @@ class TestSimulationAndPages(unittest.TestCase):
             names = z.namelist()
         self.assertIn("quantiles.csv", names)
         self.assertIn("runs/2026-11-18T0000Z.jsonl", names)
+        # The detail cards' data beside the page: the inputs (2025 first) and the intermediate totals, not the outcomes.
+        # The History view: each run's ensemble headline forecasts, with that run's years.
+        self.assertEqual([r["run_id"] for r in data["history"]], ["2026-11-18T0000Z"])
+        self.assertEqual(data["history"][0]["years"], data["years"])
+        self.assertEqual(set(data["history"][0]["cells"]["moderate"]), {h[0] for h in mbuild.HEADLINE})
+        self.assertEqual(data["inputs"], mbuild.INPUTS)
+        inputs = json.loads((site / mbuild.INPUTS).read_text())
+        moderate = inputs["ensemble"]["moderate"]
+        self.assertEqual(len(moderate["in.Q"]), len(data["industries"]))                   # one row per industry
+        self.assertEqual(len(moderate["in.Q"][0]), len(data["years"]))                     # then per year, 2025 first
+        self.assertEqual(moderate["in.Q"][0][0][2], 1.0)                                  # an index, 2025 = 1
+        self.assertIn("labor_force", moderate)
+        self.assertNotIn("gdp_growth", moderate)
+        self.assertIn("unconditional", inputs["Model A"])
+
+    def test_the_detail_cards_name_only_series_the_simulation_has(self):
+        import re
+        from eeai.model import simulate
+        blob = simulate.run(self.run_file, worlds=50)
+        have = set(blob["summaries"]["ensemble"]["moderate"])
+        src = (config.MODEL_PAGE_DIR / "25-recipes.js").read_text()
+        recipes = src.split("const RECIPES = {", 1)[1].split("\nconst MEASURES", 1)[0]
+        recipes = re.sub(r'GROWTH\("[^"]*"\)', "", recipes)                             # (an equation's symbol, not a series)
+        named = set(re.findall(r'"((?:in\.)?[A-Za-z_0-9]+)"', recipes)) - {"sigma"}   # (the occupation mix is not listed)
+        self.assertEqual(named - have, set())
+        series = set(re.findall(r'^  "?([A-Za-z_.0-9]+)"?: \{', src.split("const SERIES = {", 1)[1].split("\n};", 1)[0], re.M))
+        self.assertEqual(named - series, set(), "every series a card names has a label and unit")
+        cards = set(re.findall(r"^  (\w+): \{", recipes, re.M))
+        self.assertEqual(cards, {h[0] for h in mbuild.HEADLINE})
+        # What the page does not carry, the inputs file must.
+        page = {h[0] for h in mbuild.HEADLINE} | {d[0] for d in mbuild.DECOMPOSITION} | {x[0] for x in mbuild.SECTOR} | {x[0] for x in mbuild.OCCUPATION}
+        self.assertEqual({n for n in named - page if not n.startswith("in.")} - set(mbuild.INTERMEDIATE), set())
 
     def test_the_model_page_without_a_simulation_says_so(self):
         blob = mbuild.build([])

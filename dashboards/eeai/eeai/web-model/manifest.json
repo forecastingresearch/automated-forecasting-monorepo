@@ -1,5 +1,5 @@
 {
   "target": "model.html",
   "blobs": ["EEAI_MODEL"],
-  "chunks": ["00-head.html", "10-base.js", "20-charts.js", "30-app.js", "90-close.html"]
+  "chunks": ["00-head.html", "shared/forecast-dialog.html", "script-start.html", "10-base.js", "20-charts.js", "25-recipes.js", "30-app.js", "40-detail.js", "90-close.html"]
 }

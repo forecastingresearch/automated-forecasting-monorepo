@@ -34,6 +34,17 @@ OCCUPATION = [("occupation_employment", "Employment", "millions", 2), ("occupati
               ("occupation_premium", "Pay premium (median earnings / overall median)", "ratio", 2),
               ("occupation_time", "Human time per unit of work, relative to doing it alone", "ratio", 2)]
 NAME = "eeai-model-data.zip"
+# The detail cards' data, beside the page and fetched when a card first opens:
+# every forecast input (the summaries' "in." series) and the intermediate totals
+# between the inputs and the outcomes. The page itself stays small.
+INPUTS = "model-inputs.json"
+INTERMEDIATE = ("gdp_index", "nominal_gdp", "hours", "unemployed", "labor_force", "tfp_index", "pay_per_hour")
+
+
+def inputs(summary):
+    """A simulation summary -> the detail cards' data: {sys: {scenario: {series: cells}}}."""
+    return {sys: {sc: {k: v for k, v in by.items() if k.startswith("in.") or k in INTERMEDIATE} for sc, by in per.items()}
+            for sys, per in summary["summaries"].items()}
 
 
 def load_sims(sims_dir=None):
@@ -65,6 +76,13 @@ def build(sims, spec=None):
                           "diagnostics": s["diagnostics"], "official": s.get("official") or {}}
         blob["synthetic"] = s["synthetic"]
         blob["download"] = NAME
+        blob["inputs"] = INPUTS
+    # The History view: the ensemble's headline forecasts in every run, oldest first,
+    # each with its own years (an earlier run may have asked for fewer).
+    heads = [h[0] for h in HEADLINE]
+    blob["history"] = [{"run_id": r, "date": s["run_date"], "years": s["years"],
+                        "cells": {sc: {k: by[k] for k in heads if k in by} for sc, by in s["summaries"].get("ensemble", {}).items()}}
+                       for r, s in sims if s["summaries"].get("ensemble")]
     return blob
 
 
@@ -74,13 +92,15 @@ def page(blob):
 
 
 def write(site_dir, sims_dir=None, runs_dir=None):
-    """Write model.html (and, with a summary, its download) into the site folder. -> the blob."""
+    """Write model.html (and, with a summary, its detail-card data and its download) into the site folder. -> the blob."""
     sims = load_sims(sims_dir)
     blob = build(sims)
     site_dir = Path(site_dir)
     site_dir.mkdir(parents=True, exist_ok=True)
     (site_dir / "model.html").write_text(page(blob), encoding="utf-8")
     if sims:
+        (site_dir / INPUTS).write_text(json.dumps(inputs(sims[-1][1]), ensure_ascii=False, separators=(",", ":")),
+                                       encoding="utf-8")
         from . import export
         export.bundle(site_dir / NAME, sims[-1], runs_dir)
     return blob

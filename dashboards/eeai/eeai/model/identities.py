@@ -13,6 +13,10 @@ growth rate has no value for 2025 (NaN). Growth is an annual rate: year on
 year where the gap is one year, the average annual rate over the gap where it
 is longer. Units: N0 in US$ billions and H0 in millions of hours, so pay per
 hour is N/H x 1000 dollars.
+
+The outcomes also carry the inputs they were computed from ("in." + symbol,
+as drawn, 2025 first) and a few intermediate totals, so the page can show
+how each outcome is put together.
 """
 import numpy as np
 
@@ -139,6 +143,17 @@ def compute(base, fut, gaps):
         "occupation_premium": omega / p50[..., None],
         "occupation_time": m,
         "occupation_demand": d,
+        # The intermediate totals the page's detail cards show between inputs and outcomes.
+        "hours": H,                                              # millions of hours
+        "unemployed": U_o.sum(-1),                               # millions, in an occupation group
+        "labor_force": L,                                        # millions
+        # The forecast inputs themselves, 2025 (the baselines) first, for the detail cards.
+        # Percent where the component is a share; h for 2025 is hours over employment.
+        "in.Q": Q, "in.P": P, "in.pi": PI, "in.K": K, "in.lambda": lam * 100,
+        "in.h": np.concatenate([(base["H0"] / base["E0"])[:, None], fut["h"]], axis=1),
+        "in.E": E_i,
+        "in.u": u * 100, "in.n": n * 100, "in.Pop": pop, "in.C": C,
+        "in.p10": p10, "in.p50": p50, "in.p90": p90,
     }
     counts = {"share_sum": sig_sum[:, 1:], "automation_rescaled": over[:, 1:]}
     return out, counts

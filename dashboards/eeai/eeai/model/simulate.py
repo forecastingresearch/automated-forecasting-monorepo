@@ -11,7 +11,9 @@ outcome is summarized, per year, as its 5th, 25th, 50th, 75th and 95th
 percentiles across worlds: the median and the 50% and 90% intervals.
 
 Draws are independent across components and years, as the design note's v0
-agrees, so the intervals understate uncertainty; the page says so.
+agrees: levels' intervals understate uncertainty, and a year-on-year growth
+rate (the ratio of two unrelated draws) overstates it. No dependence is
+assumed until the panel is asked for it; the page says so.
 """
 import json
 import math
@@ -151,9 +153,13 @@ def run(path, worlds=10000, seed=20261118, record=None):
             "synthetic": any(r.get("synthetic") for r in rows), "seed": seed, "worlds": worlds,
             "years": [spec["base_year"]] + spec["years"], "systems": [], "skipped": {}, "probabilities": {},
             "summaries": {}, "diagnostics": {}, "official": official}
+    # Each model is summarized as soon as it is simulated, and only its share of
+    # the ensemble's worlds is kept, so memory holds one model's worlds at a time.
+    # The ensemble takes worlds // (models in the run) from each simulated model.
     keep = {s: [] for s in scen}
     keep_unc = []
     systems = {}
+    k = max(len(by), 1)
     for label, rs in by.items():
         call = next((r["call"] for r in rs if r.get("call")), {}) or {}
         probs = call.get("scenario_probabilities")
@@ -166,12 +172,10 @@ def run(path, worlds=10000, seed=20261118, record=None):
         diag["baseline_check"] = {k: {"computed": round(v, 3), "official": official.get(k),
                                       "diff": round(v - official[k], 3) if k in official else None}
                                   for k, v in diag.pop("baseline_totals").items()}
-        systems[label] = (out, probs)
+        systems[label] = probs
         blob["systems"].append(label)
         blob["probabilities"][label] = probs
         blob["diagnostics"][label] = diag
-    k = max(len(systems), 1)
-    for label, (out, probs) in systems.items():
         summ = {s: {name: summarize(np, arr) for name, arr in out[s].items()} for s in scen}
         if probs:
             take = {s: int(round(worlds * probs[s] / 100)) for s in scen}
@@ -179,15 +183,18 @@ def run(path, worlds=10000, seed=20261118, record=None):
             summ[M.UNCONDITIONAL] = {name: summarize(np, arr) for name, arr in unc.items()}
             perm = rng.permutation(len(unc["gdp_growth"]))[: worlds // k]
             keep_unc.append({name: arr[perm] for name, arr in unc.items()})
+            del unc
         for s in scen:
-            keep[s].append({name: arr[: worlds // k] for name, arr in out[s].items()})
+            # (copies: a slice would keep the whole model's array alive)
+            keep[s].append({name: arr[: worlds // k].copy() for name, arr in out[s].items()})
         blob["summaries"][label] = summ
+        del out
     if systems:
         ens = {s: {name: summarize(np, np.concatenate([p[name] for p in keep[s]])) for name in keep[s][0]} for s in scen}
         if keep_unc:
             ens[M.UNCONDITIONAL] = {name: summarize(np, np.concatenate([p[name] for p in keep_unc])) for name in keep_unc[0]}
         blob["summaries"]["ensemble"] = ens
-        mean_probs = [p for _, p in systems.values() if p]
+        mean_probs = [p for p in systems.values() if p]
         if mean_probs:
             blob["probabilities"]["ensemble"] = {s: round(sum(p[s] for p in mean_probs) / len(mean_probs), 2) for s in scen}
     return blob

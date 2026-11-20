@@ -1,25 +1,48 @@
-// The page: header, scenario probabilities, the headline outcomes, real pay
-// split into its three factors, growth by sector, employment by occupation,
-// work absorbed by AI, the diagnostics, the download.
+// The page, laid out as the survey's: header, the headline forecasts, the
+// other indicators, the scenario probabilities, then the model's own sections
+// (real pay split into its three factors, growth by sector, employment by
+// occupation, work absorbed by AI, the diagnostics).
 //
-// Three controls, page-wide (state): split -- the unconditional forecast, or
-// one line per AI-progress scenario; system -- the ensemble or one model; and
-// year -- the date the numbers and tables are about. The view is kept in the
-// page address (#split=1&system=ensemble&year=2030).
+// The controls are the survey's, page-wide (state): split -- the unconditional
+// forecast, or one line per AI-progress scenario (the default); term -- the
+// near term (each year to 2030) or the long term (to 2050); and year -- the date
+// the numbers and tables are about, the term's last unless the History view
+// picks another. Each chart section has its own Current / History toggle
+// (historyOf). The front page shows the ensemble; a detail dialog can show one
+// model. The view is kept in the page address (#split=1&term=long&year=2050).
+//
+// The headline outcomes are cards, as on the survey page; each opens a detail
+// dialog (40-detail.js) showing how it is computed (25-recipes.js).
 const D = window.__EEAI_MODEL__ || { years: [], headline: [], runs: [] };
 const L = D.latest;
-const state = { split: false, system: "ensemble", year: "2030" };
+// The terms, as the survey's: the near term is the years asked within five years of the latest run, the long term 2030 onward.
+const referenceYear = Number(((L && L.date) || new Date().toISOString()).slice(0, 4));
+const future = D.years.slice(1);
+const terms = {
+  near: future.filter(y => +y > referenceYear && +y <= Math.max(referenceYear + 5, 2030) && +y <= 2030),
+  long: future.filter(y => +y >= 2030),
+};
+if (!terms.near.length) terms.near = future.filter(y => +y <= 2030);
 const said = new URLSearchParams(location.hash.slice(1));
-if (said.get("split") === "1") state.split = true;
-if (L && (said.get("system") === "ensemble" || L.models.includes(said.get("system")))) state.system = said.get("system");
-if (D.years.includes(said.get("year")) && said.get("year") !== D.years[0]) state.year = said.get("year");
-const remember = () => { try { history.replaceState(null, "", `#split=${state.split ? 1 : 0}&system=${encodeURIComponent(state.system)}&year=${state.year}`); } catch (e) {} };
+const savedTerm = said.get("term") === "near" ? "near" : "long";
+const state = { split: said.get("split") !== "0", system: "ensemble", term: savedTerm,
+  year: terms[savedTerm].includes(said.get("year")) ? said.get("year") : terms[savedTerm].at(-1) };
+const historyOf = new Set((said.get("history") || "").split(",").filter(a => a === "hero" || a === "grid"));
+const remember = () => { try { history.replaceState(null, "", `#split=${state.split ? 1 : 0}&term=${state.term}&year=${state.year}`
+  + (historyOf.size ? `&history=${[...historyOf].join(",")}` : "")); } catch (e) {} };
 const root = document.getElementById("root");
 const charts = [];
+const lastOfTerm = () => +terms[state.term].at(-1);
 
+// A control was used: change, redraw (easing the time scale when the term
+// changed, as the survey does), and keep that control where it was on screen.
 function act(ev, change) {
   const k = ev.currentTarget.dataset.k, top = ev.currentTarget.getBoundingClientRect().top;
-  change(); render(); remember();
+  const oldTerm = state.term;
+  change();
+  const zoom = state.term !== oldTerm && !reducedMotion();
+  const previous = zoom ? new Map([...root.querySelectorAll(".chart[data-timeline]")].map(box => [box.dataset.timeline, box.readTimeScale()])) : null;
+  render(previous); remember();
   const b = [...root.querySelectorAll("[data-k]")].find(b => b.dataset.k === k);
   if (!b) return;
   window.scrollBy(0, b.getBoundingClientRect().top - top);
@@ -29,34 +52,63 @@ function act(ev, change) {
 function seg(where, label, options, key, untitled) {
   return h("div", { class: "seg", role: "group", "aria-label": label }, !untitled && h("span", { class: "lab" }, label),
     options.map(([value, text]) => h("button", { type: "button", "aria-pressed": String(state[key] === value),
-      "data-k": `${where}|${key}|${value}`, onclick: ev => act(ev, () => { state[key] = value; }) }, text)));
+      "data-k": `${where}|${key}|${value}`, onclick: ev => act(ev, () => { state[key] = value; if (key === "term") state.year = terms[value].at(-1); }) }, text)));
 }
 function controls(where) {
   return h("div", { class: "controls" },
-    seg(where, "Forecast shown", [[false, "Unconditional"], [true, "By AI progress scenario"]], "split", true),
-    seg(where, "Forecaster", [["ensemble", "Ensemble"], ...L.models.map(m => [m, m])], "system"),
-    seg(where, "Year", D.years.slice(1).map(y => [y, y]), "year"));
+    seg(where, "Forecast shown", [[false, "Unconditional"], [true, "Conditional on AI progress"]], "split", true),
+    seg(where, "Horizon", [["near", "Near-term"], ["long", "Long-term"]], "term"),
+    historyOf.has(where) && terms[state.term].length > 1 && h("label", {}, "Forecast for ",
+      h("select", { "data-k": where + "|year", onchange: ev => act(ev, () => { state.year = ev.target.value; }) },
+        terms[state.term].map(y => h("option", { value: y, selected: y === state.year }, y)))),
+    viewToggle(where));
+}
+// A chart section's own toggle, as the survey's: the current forecast over the years, or the history of one year's forecast.
+function viewToggle(where) {
+  const hist = historyOf.has(where);
+  return h("div", { class: "mini", role: "group", "aria-label": "View" },
+    [[false, "Current", "Current forecast"], [true, "History", "Forecast history"]].map(([v, text, title]) =>
+      h("button", { type: "button", title, "aria-pressed": String(hist === v), "data-k": `${where}|view|${v}`,
+        onclick: ev => act(ev, () => { v ? historyOf.add(where) : historyOf.delete(where); }) }, text)));
 }
 
 const sum = () => (L.summaries[state.system] || {});
 const cells = (id, sc) => ((sum()[sc] || {})[id]) || [];
+// Any forecaster's cells for an outcome: [[q05..q95] per year].
+const cellsOf = (system, sc, id) => (((L.summaries[system] || {})[sc] || {})[id]) || [];
 const yi = () => D.years.indexOf(state.year);
 const hasUncond = () => !!sum().unconditional;
+const forecasterName = system => system === "ensemble" ? "Ensemble" : system;
 // The series one chart draws: the unconditional forecast with both bands, or the three scenarios with their 50% bands.
-function seriesFor(get) {
-  if (state.split || !hasUncond()) return SCEN.map(sc => ({ label: sc.label, color: sc.color, cells: get(sc.id), band90: false }));
-  return [{ label: "Unconditional", color: UNCOND.color, cells: get("unconditional"), band90: true }];
+function seriesFor(id, system = state.system) {
+  if (state.split || !hasUncond()) return SCEN.map(sc => ({ id: sc.id, label: sc.label, color: sc.color, cells: cellsOf(system, sc.id, id), band90: false }));
+  return [{ id: "unconditional", label: "Unconditional", color: UNCOND.color, cells: cellsOf(system, "unconditional", id), band90: true }];
 }
-function chartBox(o, get, size) {
+// The tooltip's rows: the forecaster shown, then (for the ensemble) each model.
+function breakdownFor(id, system = state.system) {
+  return { label: `${forecasterName(system)} median`, models: system === "ensemble" ? L.models : [],
+    at: (m, sc, i) => cellsOf(m, sc, id)[i] };
+}
+// A chart in a section (where: "hero", "grid", or none): the current forecast
+// over the term's years, or (History) the forecast for the selected year in each run.
+function chartBox(o, size, where) {
   const box = h("div", { class: "chart" });
-  charts.push(() => fanChart(box, o, D.years, seriesFor(get), { size, year: state.year }));
+  charts.push(previous => historyOf.has(where) ? drawHistory(box, o, size)
+    : fanChart(box, o, D.years, seriesFor(o.id), { size, last: lastOfTerm(), previousScale: previous && previous.get(o.id), breakdown: breakdownFor(o.id) }));
   return box;
+}
+// The History view's series: each run's ensemble forecast for the selected year.
+function drawHistory(box, o, size) {
+  const runs = D.history || [];
+  const at = (run, sc) => { const k = run.years.indexOf(state.year), c = ((run.cells[sc] || {})[o.id] || [])[k]; return c && c[MED] != null ? c : null; };
+  const series = seriesFor(o.id).map(sr => ({ ...sr, cells: runs.map(run => at(run, sr.id)) }));
+  historyChart(box, o, runs, series, { size, target: state.year, breakdown: { label: "Ensemble median" } });
 }
 function legend() {
   const items = state.split || !hasUncond()
-    ? SCEN.map(sc => h("span", { style: `color: ${sc.color}` }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, sc.label + " (median, 50% band)")))
-    : [h("span", { style: "color: var(--uncond)" }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, "Unconditional median")),
-       h("span", {}, h("i", { class: "sw band" }), "50% and 90% intervals")];
+    ? SCEN.map(sc => h("span", { style: `color: ${sc.color}` }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, sc.label)))
+    : [h("span", { style: "color: var(--uncond)" }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, "Unconditional (ensemble median)"))];
+  items.push(h("span", {}, h("i", { class: "sw band" }), state.split || !hasUncond() ? "50% intervals" : "50% and 90% intervals"));
   return h("div", { class: "legend" }, items);
 }
 const interval = (o, c) => c && c[MED] != null ? `${fmt(o, c[1], true)} to ${fmt(o, c[3], true)}` : "–";
@@ -73,17 +125,60 @@ function header() {
     D.synthetic && h("div", { class: "banner", role: "status" }, h("b", {}, "Placeholder data. "), "These numbers are made up to show the layout. No model has been asked yet."));
 }
 
+const scenarioSummary = id => (D.scenarios.find(sc => sc.id === id) || {}).summary;
+
+// The scenario probabilities, as the survey shows them: a bar for the
+// forecaster selected, and a table of scenarios by forecaster. The bar's
+// segments and the scenario names open a tooltip with the scenario's definition.
 function probabilities() {
   const P = L.probabilities || {}, e = P[state.system];
   const pct = x => x == null ? "–" : Math.round(x) + "%";
-  return h("section", { class: "card" }, h("h2", {}, "AI progress by 2030"),
+  const tip = h("div", { id: "progress-tooltip", class: "progress-tooltip", role: "tooltip", hidden: true });
+  let active;
+  function hide() {
+    if (active) active.removeAttribute("aria-describedby");
+    active = null;
+    tip.hidden = true;
+  }
+  function events(sc, value, source) {
+    const show = ev => {
+      hide();
+      active = ev.currentTarget;
+      tip.replaceChildren(...[h("b", {}, value == null ? sc.label : `${sc.label} · ${pct(value)}`), source && h("small", {}, source),
+        h("p", {}, scenarioSummary(sc.id))].filter(Boolean));
+      active.setAttribute("aria-describedby", tip.id);
+      tip.hidden = false;
+      const area = tip.offsetParent.getBoundingClientRect(), rect = active.getBoundingClientRect();
+      const left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, rect.left + rect.width / 2 - tip.offsetWidth / 2));
+      tip.style.left = (left - area.left) + "px";
+      tip.style.top = ((rect.top > tip.offsetHeight + 12 ? rect.top - tip.offsetHeight - 6 : rect.bottom + 6) - area.top) + "px";
+    };
+    const leave = ev => { if (active === ev.currentTarget) hide(); };
+    return { onpointerenter: show, onpointerleave: leave, onfocus: show, onblur: leave, onclick: show,
+      onkeydown: ev => { if (ev.key === "Escape") hide(); } };
+  }
+  const label = state.system === "ensemble" ? "Model ensemble (mean)" : state.system;
+  return h("section", { class: "card ai-progress" }, h("h2", {}, "AI progress by 2030"),
     h("p", { class: "sub" }, "How likely each forecaster thinks each scenario is. The unconditional forecast mixes the scenarios by these weights."),
-    e && h("div", { class: "bar", role: "img", "aria-label": SCEN.map(sc => `${sc.label} ${pct(e[sc.id])}`).join(", ") },
-      SCEN.map(sc => h("div", { style: `flex: ${e[sc.id]} 0 0; background: ${sc.color}`, title: `${sc.label}: ${pct(e[sc.id])}` }))),
+    e && h("div", { class: "scenario-bars" }, h("figure", {}, h("figcaption", {}, h("b", {}, label)),
+      h("div", { class: "bar", role: "group", "aria-label": `${label}. ` + SCEN.map(sc => `${sc.label} ${pct(e[sc.id])}`).join(", ") },
+        SCEN.map(sc => h("button", { type: "button", "aria-label": `${sc.label} ${pct(e[sc.id])}`,
+          style: `flex: ${e[sc.id]} 0 0; background: ${sc.color}`, ...events(sc, e[sc.id], label) }))))),
     h("div", { class: "scroll", style: "margin-top: 14px" }, h("table", { class: "tv" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Forecaster"), SCEN.map(sc => h("th", {}, sc.label)))),
-      h("tbody", {}, ["ensemble", ...L.models].map(m => h("tr", {}, h("td", {}, m === "ensemble" ? h("b", {}, "Ensemble (mean)") : m),
-        SCEN.map(sc => h("td", { class: "mono" }, pct((P[m] || {})[sc.id])))))))));
+      h("thead", {}, h("tr", {}, h("th", {}, "Probability"), h("th", {}, "Ensemble (mean)"), L.models.map(m => h("th", {}, m)))),
+      h("tbody", {}, SCEN.map(sc => h("tr", {},
+        h("th", { scope: "row" }, h("button", { type: "button", class: "scenario-label", ...events(sc) }, sc.label)),
+        ["ensemble", ...L.models].map(m => h("td", { class: "mono" }, pct((P[m] || {})[sc.id])))))))),
+    tip);
+}
+
+// The unit line under a card's title: the unit, the window a growth rate covers, the year.
+const unitLine = o => o.unit + (o.kind === "growth" && +state.year > 2030 ? `, average since ${D.years[yi() - 1]}` : "") + ` · ${state.year}`;
+const forecastTitle = text => h("button", { type: "button", class: "forecast-trigger" }, text);
+
+// A card opens its detail dialog (the survey's shared forecastDialog) from its title or anywhere on it.
+function forecastCard(o, card) {
+  return forecastDialog.bind(card, card.querySelector(".forecast-trigger"), opener => openDetail(o, opener));
 }
 
 function tile(o) {
@@ -91,15 +186,42 @@ function tile(o) {
   const shown = state.split || !hasUncond()
     ? h("div", { class: "num chips mono" }, SCEN.map(sc => h("span", { title: sc.label }, h("i", { class: "sw dot", style: `color: ${sc.color}` }), h("b", {}, fmt(o, (get(sc.id)[i] || [])[MED])))))
     : h("div", { class: "num mono" }, h("b", {}, fmt(o, (get("unconditional")[i] || [])[MED])), ` · 50%: ${interval(o, get("unconditional")[i])}`);
-  return h("div", { class: "tile" }, h("h3", {}, o.label), h("div", { class: "unit" }, o.unit + (o.kind === "growth" && +state.year > 2030 ? `, average since ${D.years[yi() - 1]}` : "") + ` · ${state.year}`),
-    shown, chartBox(o, get, "mini"));
+  return forecastCard(o, h("article", { class: "tile forecast-card" }, h("h3", {}, forecastTitle(o.label)), h("div", { class: "unit" }, unitLine(o)),
+    shown, chartBox(o, "mini", "grid")));
 }
 
+// A headline card, as the survey's: a measure line, the forecaster's median in
+// large type (not repeated per scenario when the chart is split), and a larger chart.
+function headlineCard(o) {
+  const v = (cells(o.id, "unconditional")[yi()] || [])[MED];
+  return forecastCard(o, h("article", { class: "tile headline forecast-card" }, h("h3", {}, forecastTitle(o.label)),
+    h("p", { class: "sub" }, MEASURES[o.id]),
+    !state.split && hasUncond() && h("div", { class: "headline-values" },
+      h("small", {}, `${forecasterName(state.system)} median`), h("b", { class: "mono" }, fmt(o, v))),
+    h("small", {}, unitLine(o)),
+    chartBox(o, "headline", "hero")));
+}
+
+// The two chart sections, as the survey's: the headline forecasts, then the other indicators, each with its own controls.
 function headline() {
-  return h("section", { class: "card" }, h("h2", {}, "The economy"),
-    h("p", { class: "sub" }, "Computed from the components in every simulated world. Growth is the annual rate: year on year to 2030, then the average annual rate since the previous date shown."),
-    controls("head"), legend(), h("div", { class: "grid" }, D.headline.map(tile)),
-    h("p", { class: "note" }, "Every component is drawn independently, across parts and years, so the intervals understate uncertainty: surprises that would move together cancel out instead. Year-on-year growth to 2030 divides two independent draws, so its intervals are wider still. Read the medians first."));
+  const lead = D.headline.filter(o => o.id in MEASURES);
+  return h("section", { class: "card" }, h("h2", {}, "Headline forecasts"),
+    h("p", { class: "sub" }, "Computed from the components in every simulated world, not asked directly. Open a card to see the forecasts it is computed from, and how."
+      + (historyOf.has("hero") ? ` Each chart tracks the forecast for ${state.year} across runs.` : "")),
+    controls("hero"), legend(), h("div", { class: "headline-grid" }, lead.map(headlineCard)));
+}
+function others() {
+  const rest = D.headline.filter(o => !(o.id in MEASURES));
+  return h("section", { class: "card" }, h("h2", {}, "The other indicators"),
+    h("p", { class: "sub" }, "Each indicator has its own scale. Growth is the annual rate: year on year to 2030, then the average annual rate since the previous date shown."
+      + (historyOf.has("grid") ? ` Each chart tracks the forecast for ${state.year} across runs.` : "")),
+    controls("grid"), legend(), h("div", { class: "grid" }, rest.map(tile)),
+    h("p", { class: "note" }, "Every component is drawn independently, across components and across years: the panel has not yet been asked how they move together. ",
+      "For levels this understates uncertainty, since surprises that would move together cancel out instead. ",
+      "For growth rates it can overstate it: a year-on-year rate divides two unrelated draws, so the intervals to 2030 are too wide, and they narrow abruptly at 2035. ",
+      "These intervals will change once the panel is asked how each component's values in different years depend on each other. ",
+      "Some of the narrowing after 2030 is real, though: from 2035 a growth rate is the average over five years, and an average is less uncertain than any single year's rate. ",
+      "Compare an interval with others over the same window. Read the medians first."));
 }
 
 function decomposition() {
@@ -148,7 +270,7 @@ function absorbed() {
   const o = { id: "work_absorbed", label: "Work absorbed by AI", unit: "millions of workers", decimals: 1, kind: "level" };
   return h("section", { class: "card" }, h("h2", {}, "Work absorbed by AI"),
     h("p", { class: "sub" }, "The extra workers it would take to do each year's work with 2025's AI, from the forecasters' stated shares of work done with AI help or by machines, and the time each takes. Not a count of jobs lost: cheaper work is also demanded more. These components have no official source, so this shows the forecasters' beliefs, not scoreable forecasts."),
-    legend(), chartBox(o, sc => cells("work_absorbed", sc), "hero"));
+    legend(), chartBox(o, "hero"));
 }
 
 function diagnostics() {
@@ -179,18 +301,18 @@ function diagnostics() {
     })));
 }
 
-function render() {
+function render(previous) {
   charts.length = 0;
   root.style.minHeight = root.offsetHeight + "px";
   root.classList.remove("still");
   root.replaceChildren(...[
     header(),
     !L && h("section", { class: "card" }, h("h2", {}, "No forecasts yet"), h("p", { class: "empty" }, "The panel has not been asked the economy model. The components are defined; the first run will fill this page.")),
-    L && probabilities(), L && headline(), L && decomposition(), L && sectors(), L && occupations(), L && absorbed(), L && diagnostics(),
+    L && headline(), L && others(), L && probabilities(), L && decomposition(), L && sectors(), L && occupations(), L && absorbed(), L && diagnostics(),
     h("footer", {},
       h("p", {}, `Instrument ${D.instrument}. Scenario definitions are from FRI's Economic Effects of AI survey. Components resolve against BEA and BLS series; the automation layer has no official source.`),
       h("p", {}, "The ensemble mixes the models' simulated worlds with equal weight. Forecasts are not yet scored against outcomes."))].filter(Boolean));
-  for (const draw of charts) draw();
+  for (const draw of charts) draw(previous);
   root.style.minHeight = "";
 }
 let timer;

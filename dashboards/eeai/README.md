@@ -165,7 +165,14 @@ the US economy, and every top-line outcome is computed from them:
   annual rate since the previous date shown.
 - **The page.** `model.html` beside the survey's `index.html`, linked from both
   headers, built from `eeai/web-model/`, with its own download
-  (`eeai-model-data.zip`). The survey page's data is unchanged.
+  (`eeai-model-data.zip`). The survey page's data is unchanged. Each headline
+  card opens the survey's shared detail dialog: the outcome's equations, a
+  diagram from the forecast inputs through the intermediate totals to the
+  outcome, every input by industry and occupation group, and each forecaster's
+  forecast by year. The equations and what each card lists are in
+  `eeai/web-model/25-recipes.js`. The inputs are in `model-inputs.json` beside the
+  page (about 1.4 MB), fetched when a card first opens, so the page must be
+  served (`python3 -m http.server -d eeai/site`), not opened as a file.
 
 ```bash
 python3 -m eeai model prompt                           # each call's size and token estimate (--show: the prompt)
