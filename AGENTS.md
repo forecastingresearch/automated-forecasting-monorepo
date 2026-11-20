@@ -29,3 +29,13 @@ Keep machine names, personal paths, production data, credentials and deployment
 receipts outside git. Read the cell's private runtime configuration for its
 installation details. Never copy the coding-provider login into a forecasting
 job's agent directory.
+
+## Privacy
+
+Never commit personally identifiable information (PII) to this repository or
+include it in pull requests, issues, dashboard pages, or public downloads.
+This includes personal contact details, participant identifiers that can be
+linked back to a person, and identifying details in free-text responses.
+Use fictional data in examples and test fixtures. Keep raw survey extracts
+in private storage. Before sharing human forecast aggregates, check whether
+small groups or combinations of attributes could identify a respondent.

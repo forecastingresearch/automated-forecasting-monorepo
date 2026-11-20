@@ -122,6 +122,22 @@
   }
   .tippy-box[data-theme~="airo"] > .tippy-content { padding: 8px 10px; }
   .tippy-box[data-theme~="airo"] > .tippy-arrow { color: var(--panel); }
+/* A single forecast-date tooltip: condition labels, row medians, then models. */
+.forecast-matrix th, .forecast-matrix td { padding: 7px 10px; text-align: right; }
+.forecast-matrix thead th { max-width: 100px; font-size: 11px; line-height: 1.35; color: var(--ink-soft); border-bottom: 1px solid var(--line); }
+.forecast-matrix th:first-child { text-align: left; }
+.forecast-matrix thead th:nth-child(2), .forecast-matrix tbody td:nth-child(2) { background: var(--panel); border-right: 1px solid var(--line); }
+.forecast-matrix tbody tr + tr { border-top: 1px solid var(--line-soft); }
+.forecast-matrix tfoot { border-top: 2px solid var(--line); font-weight: 700; }
+@keyframes forecast-tooltip-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+[data-forecast-motion] > .tippy-box { animation: forecast-tooltip-enter 140ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-forecast-motion] { transition: none !important; }
+  [data-forecast-motion] > .tippy-box { animation: none; }
+}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/tippy.js@6.3.7/dist/tippy.css" />
 <!-- Visitor analytics (2026-09-11): who reaches the page, where from, which
@@ -209,7 +225,7 @@ function appTooltip(target, options = {}) {
 
 // React owns content; Popper owns viewport-aware placement. Coordinates are SVG
 // user units, transformed through the actual screen matrix (including resize).
-function PointTooltip({ anchor, box, x, y, children }) {
+function PointTooltip({ anchor, box, x, y, children, maxWidth = 360, interactive = false, motion = false }) {
   const [content] = useState(() => document.createElement("div"));
   const tooltip = React.useRef(null);
   const position = React.useRef(null);
@@ -219,7 +235,10 @@ function PointTooltip({ anchor, box, x, y, children }) {
     const target = p.anchor || (p.box && p.box.current);
     if (!target || !window.tippy) return;
     const instance = appTooltip(target, {
-      content, trigger: "manual",
+      // React owns visibility, including pinned tooltips; Tippy only places them.
+      content, trigger: "manual", hideOnClick: false, onHide: () => false, maxWidth, interactive,
+      moveTransition: motion ? "transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1)" : "",
+      popperOptions: { modifiers: [{ name: "preventOverflow", options: { altAxis: true, padding: 8 } }] },
       getReferenceClientRect: () => {
         const p = position.current;
         if (p.anchor) return p.anchor.getBoundingClientRect();
@@ -231,10 +250,11 @@ function PointTooltip({ anchor, box, x, y, children }) {
           top: screen.y, bottom: screen.y, width: 0, height: 0 };
       },
     });
+    if (motion) instance.popper.dataset.forecastMotion = "";
     tooltip.current = instance;
     instance.show();
     return () => { instance.destroy(); tooltip.current = null; };
-  }, [anchor, box, content]);
+  }, [anchor, box, content, maxWidth, interactive, motion]);
   React.useLayoutEffect(() => {
     if (tooltip.current && tooltip.current.popperInstance) tooltip.current.popperInstance.update();
   });
@@ -553,6 +573,24 @@ function tlModelMedians(q, horizon, index) {
   }).filter(s => s.value != null);
 }
 
+// One matrix per elicitation, including the historical single-condition runs.
+function tlForecastMatrix(q, horizon, index, snapshots) {
+  const legacy = snapshots[index].date < TL_CONDITION_START;
+  const rows = legacy ? [{
+    id: "none", ...TL_CONDITIONS.none, median: q.median[horizon]?.[index],
+    answers: Object.fromEntries(q.series.map(s => [s.label, s.ps[horizon]?.[index]])),
+  }] : tlVariants(q, horizon, snapshots).filter(v => v.vals[index] != null)
+    .map(v => ({ ...v, median: v.vals[index], answers: v.models[index] || {} }));
+  const labels = [...new Set([...q.series.map(s => s.label), ...rows.flatMap(r => Object.keys(r.answers))])]
+    .filter(label => rows.some(r => r.answers[label] != null));
+  const models = labels.map(label => {
+    const values = rows.map(r => r.answers[label]).filter(v => v != null).sort((a, b) => a - b);
+    const mid = Math.floor(values.length / 2);
+    return { label, median: values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2 };
+  });
+  return { rows, models };
+}
+
 // Old published snapshots may include a shadow in both condition dots and
 // pooled model means. Repair the displayed aggregates from public condition
 // answers on affected dates only; leave the immutable snapshot/downloads alone.
@@ -640,38 +678,23 @@ function TimelineChart({ q, snapshots, horizon, scale }) {
   const h = horizon;
   const med = q.median[h] || [];
   const fmtV = tlFmtFor(q);
-  const [active, setActive] = useState(null);         // { i, id, anchor }, null id = median
-  const [pinned, setPinned] = useState(false);        // click/tap keeps the details open
-  const hv = active ? active.i : null;
-  const hvar = active && active.id != null ? active : null;
+  const [active, setActive] = useState(null); // one selected elicitation, never a dot
+  const [pinned, setPinned] = useState(false);
+  const hv = active;
   const clear = () => { setActive(null); setPinned(false); };
-  const hover = (e, i, id = null) => { if (!pinned) setActive({ i, id, anchor: e.currentTarget.lastElementChild }); };
+  const hover = i => { if (!pinned) setActive(i); };
   const leave = () => { if (!pinned) setActive(null); };
-  const select = (e, i, id = null) => {
+  const select = (e, i) => {
     e.stopPropagation();
-    if (pinned && hv === i && (active && active.id) === id) clear();
-    else { setActive({ i, id, anchor: e.currentTarget.lastElementChild }); setPinned(true); }
+    if (pinned && hv === i) clear();
+    else { setActive(i); setPinned(true); }
   };
-  const keySelect = (e, i, id = null) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(e, i, id); }
+  const keySelect = (e, i) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(e, i); }
   };
   const series = q.series.map(s => ({ ...s, vals: s.ps[h] || [] }));
-  // Prompt variants (combined-v10): one dot per variant, the panel median of
-  // that prompt's calls; the ink mark is the median of the models' means
-  // over the five. On a variant date the models' means are not drawn
-  // (project lead, 2026-10-21): hovering a variant dot lists only model
-  // answers; the legend carries the prompt instruction. The unpooled sixth call is never in the
-  // blob.
   const variants = tlVariants(q, h, snapshots);
-  const hasVar = i => variants.some(v => v.vals[i] != null);
-  const hovered = hvar && variants.find(v => v.id === hvar.id);
-  const conditionName = hovered ? hovered.label : hv != null && isBaseline(hv) ? "Baseline" : null;
-  const tooltipModels = hovered
-    ? Object.entries(hovered.models[hvar.i] || {}).filter(([, value]) => value != null)
-      .map(([label, value]) => ({ label, value }))
-    : hv != null ? (isBaseline(hv)
-      ? series.filter(s => s.vals[hv] != null).map(s => ({ ...s, value: s.vals[hv] }))
-      : tlModelMedians(q, h, hv)) : [];
+  const matrix = hv != null ? tlForecastMatrix(q, h, hv, snapshots) : null;
 
   let y, yticks, tickText, tickSub;
   if (loss) {
@@ -775,61 +798,50 @@ function TimelineChart({ q, snapshots, horizon, scale }) {
         <rect x={pad.l} y={pad.t} width={Math.max(1, W - pad.l - pad.r)} height={H - pad.t - pad.b} fill="transparent"
           onMouseMove={leave} />
 
-        {/* The median's marks, unjoined. The larger transparent target also works on touchscreens. */}
+        {/* Marks are visual only; the date's single hover strip owns interaction. */}
         {med.map((v, i) => v == null ? null : (
-          <g key={"m" + i} role="button" tabIndex={0} style={{ cursor: "pointer" }}
-            aria-label={`${snapshots[i].date}, ${isBaseline(i) ? "Baseline prompt" : "ensemble median"} ${fmtV(v)}; show model forecasts`}
-            aria-pressed={pinned && hv === i && !hvar}
-            onMouseEnter={e => hover(e, i)} onMouseLeave={leave} onFocus={e => hover(e, i)} onBlur={leave}
-            onClick={e => select(e, i)} onKeyDown={e => keySelect(e, i)}>
-            <circle cx={x(i)} cy={y(v)} r="10" fill="transparent" />
-            <circle cx={x(i)} cy={y(v)} r={isBaseline(i) ? "4.5" : "5"}
-              fill={isBaseline(i) ? TL_CONDITIONS.none.color : "var(--panel)"}
-              stroke={isBaseline(i) ? "var(--panel)" : "var(--ink)"}
-              strokeWidth={isBaseline(i) ? "1.5" : "2.6"} />
-          </g>
+          <circle key={"m" + i} cx={x(i)} cy={y(v)} r={isBaseline(i) ? "4.5" : "5"}
+            fill={isBaseline(i) ? TL_CONDITIONS.none.color : "var(--panel)"}
+            stroke={isBaseline(i) ? "var(--panel)" : "var(--ink)"}
+            strokeWidth={isBaseline(i) ? "1.5" : "2.6"} pointerEvents="none" />
         ))}
-
-        {/* One dot per prompt variant, above the hover layer so each can be hovered. */}
         {variantDots.map(({ v, i, cx, cy }) => (
-          <g key={`${v.id}:${i}`} opacity={hvar && (hvar.id !== v.id || hvar.i !== i) ? 0.3 : 1}
-            role="button" tabIndex={0} style={{ cursor: "pointer" }}
-            aria-label={`${snapshots[i].date}, ${v.label} prompt ${fmtV(v.vals[i])}; show model forecasts`}
-            aria-pressed={pinned && hv === i && hvar && hvar.id === v.id ? true : false}
-            onMouseEnter={e => hover(e, i, v.id)} onMouseLeave={leave} onFocus={e => hover(e, i, v.id)} onBlur={leave}
-            onClick={e => select(e, i, v.id)} onKeyDown={e => keySelect(e, i, v.id)}>
-            <circle cx={cx} cy={cy} r="10" fill="transparent" />
-            <circle cx={cx} cy={cy} r="4.5" fill={v.color} stroke="var(--panel)" strokeWidth="1.5" />
-          </g>
+          <circle key={`${v.id}:${i}`} cx={cx} cy={cy} r="4.5" fill={v.color}
+            stroke="var(--panel)" strokeWidth="1.5" pointerEvents="none" />
         ))}
+        {snapshots.map((s, i) => {
+          if (med[i] == null && !variants.some(v => v.vals[i] != null)) return null;
+          const left = i ? (xs[i - 1] + xs[i]) / 2 : Math.max(0, xs[i] - 12);
+          const right = i < n - 1 ? (xs[i] + xs[i + 1]) / 2 : Math.min(W, xs[i] + 12);
+          return <rect key={"date" + i} data-forecast-date={s.date}
+            x={left} y={pad.t} width={right - left} height={H - pad.t - pad.b}
+            fill="transparent" role="button" tabIndex={0} style={{ cursor: "pointer" }}
+            aria-label={`${s.date}; show condition and model forecasts`} aria-pressed={pinned && hv === i}
+            onMouseEnter={() => hover(i)} onFocus={() => hover(i)} onBlur={leave}
+            onClick={e => select(e, i)} onKeyDown={e => keySelect(e, i)} />;
+        })}
       </svg>
 
       {hv != null && (
-        <PointTooltip anchor={active.anchor}>
-          {conditionName ? <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{conditionName}</div> : <>
-          <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 6 }}>
-            {snapshots[hv].date}
+        <PointTooltip box={box} x={x(hv)} y={med[hv] != null ? y(med[hv]) : H / 2} maxWidth={760} interactive={pinned} motion>
+          <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 8 }}>{snapshots[hv].date}</div>
+          <div style={{ maxWidth: "calc(100vw - 48px)", overflowX: "auto" }}>
+            <table className="forecast-matrix" style={{ borderCollapse: "collapse", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+              <thead><tr>
+                <th scope="col">Condition</th><th scope="col">Condition<br />median</th>
+                {matrix.models.map(m => <th scope="col" key={m.label}>{m.label}</th>)}
+              </tr></thead>
+              <tbody>{matrix.rows.map(row => <tr key={row.id}>
+                <th scope="row" style={{ color: row.color, textAlign: "left", whiteSpace: "nowrap" }}>{row.label}</th>
+                <td className="mono" style={{ fontWeight: 700 }}>{fmtV(row.median)}</td>
+                {matrix.models.map(m => <td className="mono" key={m.label}>{fmtV(row.answers[m.label])}</td>)}
+              </tr>)}</tbody>
+              <tfoot><tr>
+                <th scope="row" colSpan={2} style={{ textAlign: "left", whiteSpace: "nowrap" }}>Model median</th>
+                {matrix.models.map(m => <td className="mono" key={m.label}>{fmtV(m.median)}</td>)}
+              </tr></tfoot>
+            </table>
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Conditions</div>
-          {variants.filter(v => v.vals[hv] != null).map(v => (
-            <div key={"tv" + v.id} style={{ display: "flex", justifyContent: "space-between", gap: 14, fontSize: 12, color: "var(--ink-soft)" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 9, height: 9, borderRadius: "50%", background: v.color, flexShrink: 0 }}></span>{v.label}
-              </span><span className="mono">{fmtV(v.vals[hv])}</span>
-            </div>
-          ))}
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 10, marginBottom: 4 }}>Models</div>
-          </>}
-          {tooltipModels.map(s => (
-            <div key={s.label} style={{ display: "flex", justifyContent: "space-between", gap: 14, fontSize: 12 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--ink-soft)", flexShrink: 0 }}></span>{s.label}
-              </span>
-              <span className="mono">
-                {fmtV(s.value)}
-              </span>
-            </div>
-          ))}
         </PointTooltip>
       )}
     </div>

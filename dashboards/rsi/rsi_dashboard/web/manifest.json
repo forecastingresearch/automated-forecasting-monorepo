@@ -4,6 +4,7 @@
     "style.html",
     "header.html",
     "index.html",
+    "shared/forecast-dialog.html",
     "render.html"
   ],
   "blobs": [

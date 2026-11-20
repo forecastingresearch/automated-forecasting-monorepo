@@ -1,0 +1,67 @@
+<style>
+body:has(#question-dialog[open]){overflow:hidden}
+#question-dialog{width:100%;max-width:none;height:90dvh;max-height:90dvh;padding:0;border:0;border-block:1px solid #c8d3cb;color:var(--ink);background:#fff;overscroll-behavior:contain}
+#question-dialog::backdrop{background:rgb(16 43 35 / 58%)}
+.question-shell{max-width:1024px;margin:auto;padding:0 clamp(18px,5vw,64px) 40px}
+.question-top{display:flex;align-items:center;justify-content:space-between;gap:1rem;position:sticky;top:0;background:#fff;padding:16px 0;z-index:1}
+#question-close{background:var(--pale,#e6eee6);color:var(--ink);font:500 13px var(--mono);padding:7px 12px;border-radius:6px}
+#question-title{font-size:clamp(22px,3vw,34px);max-width:42ch}
+#question-views{display:flex;gap:8px;flex-wrap:wrap}
+#question-views{border-bottom:1px solid #cad4cc;margin:20px 0}
+#question-views button{background:transparent;border-bottom:2px solid transparent;color:var(--muted,var(--ink-soft));padding:8px 10px;font:500 14px 'DM Sans',sans-serif}
+#question-views button[aria-pressed=true]{color:var(--ink);border-color:var(--ink)}
+#question-dialog button{cursor:pointer}
+@media (max-width:640px){
+  #question-dialog{height:100dvh;max-height:100dvh;margin:0}
+}
+</style>
+<dialog id="question-dialog" aria-labelledby="question-title">
+  <div class="question-shell">
+    <div class="question-top"><span id="question-id" class="label"></span><button id="question-close" type="button" autofocus>Close</button></div>
+    <h2 id="question-title"></h2>
+    <div id="question-views" aria-label="Question details" role="group"></div>
+    <div id="question-content"></div>
+  </div>
+</dialog>
+<script>
+const forecastDialog = (() => {
+  const dialog = document.getElementById("question-dialog");
+  const views = dialog.querySelector("#question-views");
+  const content = dialog.querySelector("#question-content");
+  let opener;
+  dialog.querySelector("#question-close").onclick = () => dialog.close();
+  dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => opener?.focus({preventScroll:true}));
+
+  function bind(card, trigger, open) {
+    trigger.setAttribute("aria-haspopup", "dialog");
+    card.addEventListener("click", event => {
+      const control = event.target.closest("button,a,input,select,summary");
+      if (!control || control === trigger) open(trigger);
+    });
+    return card;
+  }
+
+  function show(trigger, label, title, sections) {
+    opener = trigger;
+    dialog.querySelector("#question-id").textContent = label;
+    dialog.querySelector("#question-title").textContent = title;
+    views.replaceChildren();
+    for (const [name, render] of sections) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = name;
+      button.onclick = () => {
+        for (const item of views.children) item.setAttribute("aria-pressed", String(item === button));
+        content.replaceChildren();
+        render(content);
+      };
+      views.append(button);
+    }
+    views.firstElementChild.click();
+    dialog.showModal();
+    dialog.scrollTop = 0;
+  }
+  return { bind, show };
+})();
+</script>

@@ -8,9 +8,10 @@ from . import config, instrument, survey as S
 
 def cmd_prompt(args):
     from fri_forecaster import baseline, panel
-    survey, history = S.load(), S.history()
+    from .baselines import current
+    survey = S.load()
     today = date.fromisoformat(args.today) if args.today else datetime.now(timezone.utc).date()
-    prompt, qids = instrument.build_prompt(survey, history, today)
+    prompt, qids = instrument.build_prompt(survey, S.history(current(today)), today)
     members, _ = panel.panel(snapshot_dir=config.ECI_DIR)
     print(f"##### {config.EXPERIMENT} / {config.CONDITION} [{survey['instrument']}]: {len(qids)} questions, "
           f"{S.n_values(survey, today)} values + Part 1, {len(prompt)} chars #####")
@@ -47,7 +48,55 @@ def main(argv=None):
     b.add_argument("--model-sims", help="the economy model's summaries (default eeai/results/model/sims)")
     b.add_argument("--model-runs", help="the economy model's run files, for its download (default eeai/results/model/runs)")
     _model_parser(sub)
+    sub.add_parser("resolve", help="record due source revisions and reviewed outcomes under EEAI_RESULTS")
+    sub.add_parser("refresh", help="refresh economic baselines and check due outcomes")
+    replay = sub.add_parser("replay", help="inspect a historical FRED target without storing it")
+    replay.add_argument("question")
+    replay.add_argument("year", type=int)
+    replay.add_argument("--as-of", required=True, type=date.fromisoformat)
+    replay.add_argument("--history", action="store_true", help="show every distinct source vintage value")
+    decision = sub.add_parser("decide", help="record an adjudication or a correction")
+    decision.add_argument("file")
+    human = sub.add_parser("summarize-human", aliases=["import-human"], help="compute the public summary from private weighted survey CSVs")
+    human.add_argument("directory")
+    human.add_argument("--extracted-on", required=True)
+    human.add_argument("--out", help="write the public CSV here (default: the tracked dashboard summary)")
     args = ap.parse_args(argv)
+    if args.cmd in ("summarize-human", "import-human"):
+        from .human import SUMMARY, summarize
+        print(summarize(args.directory, args.extracted_on, args.out or SUMMARY))
+        return 0
+    if args.cmd == "replay":
+        import json
+        from . import resolve
+        q = next((q for q in S.load()["questions"] if q["id"] == args.question), None)
+        if not q or q["resolver"] != "fred":
+            ap.error("replay requires an automated economic question")
+        periods = resolve.dates(q["resolution"]["method"], args.year)
+        day = args.as_of.isoformat()
+        got = [] if args.history else None
+        if day >= periods[0]:
+            got = resolve.read_target(q, periods, day, history=args.history)
+        print(json.dumps(got if got is not None else {"status": "awaiting_evidence"}, indent=2))
+        return 0
+    if args.cmd == "decide":
+        from .decisions import apply
+        apply(args.file)
+        return 0
+    if args.cmd == "refresh":
+        import json
+        from . import baselines, resolve
+        day = datetime.now(timezone.utc).date()
+        resolved = resolve.refresh(day)
+        # Forecasts read the latest completed dated baseline. Advance it only
+        # once the resolution pass has finished.
+        print(json.dumps(baselines.refresh(day), indent=2))
+        print(f"{resolved} resolved target(s)")
+        return 0
+    if args.cmd == "resolve":
+        from .resolve import refresh
+        print(f"{refresh()} resolved target(s)")
+        return 0
     if args.cmd == "prompt":
         return cmd_prompt(args)
     if args.cmd == "run":

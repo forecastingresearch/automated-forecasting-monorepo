@@ -13,12 +13,11 @@ under the current instrument or one it continues (survey.instruments).
 
 A question is asked at several dates. The page shows, for each date, the
 forecast of the latest run that asked about it: a run stops asking once a
-date has passed, so a past date keeps its last forecast. When the record
-(eeai/data/history.csv) has a value for a date, that is the outcome the
-forecast is set against.
+date has passed, so a past date keeps its last forecast. A stored question resolution supplies the observed outcome.
 
 The page is assembled from eeai/web/ by the dashboard kit (packages/dashboard).
 """
+import io
 import json
 import statistics
 from pathlib import Path
@@ -78,7 +77,8 @@ def _part1(survey, calls):
     return out
 
 
-def build(survey=None, history=None, runs=None):
+def build(survey=None, history=None, runs=None, outcomes=None):
+    outcomes = outcomes or {}
     survey = survey or S.load()
     history = history if history is not None else S.history()
     runs = runs if runs is not None else load_runs(instrument=S.instruments(survey))
@@ -89,6 +89,10 @@ def build(survey=None, history=None, runs=None):
             # The zip main() writes beside the page; the "Download data" button's link.
             "download": export.NAME if runs else None,
             "runs": [], "latest": None, "part1": None, "questions": []}
+    scenario_rule = survey["scenarios"].get("resolution")
+    scenario = outcomes.get(("ai_scenario", "2030", scenario_rule["version"])) if scenario_rule else None
+    blob["realized_scenario"] = scenario["value"] if scenario else None
+    blob["latest_realized_scenario"] = (scenario.get("revisions") or [scenario])[-1]["value"] if scenario else None
     per_run = []
     for run_id, rows in runs:
         calls = [(r["label"], r["call"]) for r in rows if r.get("call")]
@@ -112,10 +116,12 @@ def build(survey=None, history=None, runs=None):
     for q in survey["questions"]:
         item = {k: q[k] for k in ("id", "title", "short", "category", "unit", "decimals", "uncertainty", "stem", "details")}
         item["preamble"] = q.get("preamble")
+        item["resolution_text"] = S.resolution_text(q["resolution"])
         series = history.get(q["history"], [])
         item["history"] = [[d, v] for d, v in series]
         item["ensemble"], item["models"], item["series"] = {}, [], []
         asked_on = {}
+        forecast_rules = {}
         for run_id, run_date, by_q, _ in per_run:
             ens = ensemble(survey, q, by_q.get(q["id"], []))
             if ens:
@@ -125,15 +131,34 @@ def build(survey=None, history=None, runs=None):
                                        "models": {r["label"]: r["forecasts"] for r in by_q.get(q["id"], [])}})
                 # Each date keeps the forecast of the latest run that asked about it.
                 item["ensemble"].update(ens)
+                for horizon in ens:
+                    versions = [r.get("resolution_rule") for r in by_q[q["id"]]
+                                if horizon in r["forecasts"]]
+                    default_rule = q.get("resolution")
+                    if None in versions and default_rule and default_rule["version"] != 1:
+                        default_rule = q.get("previous_rules", {}).get("1")
+                        if default_rule is None:
+                            raise ValueError(f"Missing original resolution rule for {q['id']}")
+                    rules = [r or default_rule for r in versions]
+                    if any(r != rules[0] for r in rules):
+                        raise ValueError(f"Mixed resolution rules for {q['id']} in {run_id}")
+                    forecast_rules[horizon] = rules[0]
+                item["series"][-1]["rule_versions"] = {h: forecast_rules[h]["version"] for h in ens
+                                                       if forecast_rules[h]}
                 asked_on.update({h: run_date for h in ens})
         # `actual`: the record's value for the date, once there is one -- the
         # outcome its forecast (made on `asked`) is set against.
         item["horizons"] = []
         for h in q["horizons"]:
-            got = S.actual(series, h["id"])
+            rule = forecast_rules.get(h["id"], q.get("resolution"))
+            got = outcomes.get((q["id"], h["id"], rule["version"])) if rule else None
+            if got and got["rule"] != rule:
+                raise ValueError(f"Resolution rule mismatch for {q['id']}")
             item["horizons"].append({"id": h["id"], "text": h["text"], "added": bool(h.get("added")),
                                      "date": f"{h['id']}-01-01", "asked": asked_on.get(h["id"]),
-                                     "actual": {"date": got[0], "value": got[1]} if got else None})
+                                     "resolution_rule": rule,
+                                     "status": "resolved" if got else ("needs_adjudication" if rule and rule["method"] == "adjudicated" else "awaiting_evidence"),
+                                     "actual": {"date": f"{h['id']}-01-01", **got} if got else None})
         if latest:
             rows = latest[2].get(q["id"], [])
             rank = {label: i for i, label in enumerate(blob["latest"]["models"])}
@@ -165,7 +190,21 @@ def main(args):
                     or len(panel["members"]) != panel["k"]
                     or any(row.get("synthetic") or row["run_id"] != run_id for row in rows)):
                 raise ValueError(f"EEAI publication requires a complete real panel for {run_id}")
-    blob = build(survey, runs=runs)
+    from dashboard import resolutions
+    snapshot_id, histories = resolutions.history(config.RESULTS / "resolutions.sqlite")
+    outcomes = resolutions.project(histories)
+    from . import baselines
+    baseline, history_bytes = baselines.snapshot()
+    history = S.read_history(io.StringIO(history_bytes.decode()))
+    blob = build(survey, history=history, runs=runs, outcomes=outcomes)
+    blob["outcome_snapshot_id"] = snapshot_id
+    from .human import load as load_human_summary
+    vintage, human = load_human_summary()
+    blob["human"] = human
+    blob["human_extracted_on"] = vintage
+    if human:
+        blob["download"] = export.NAME
+    blob["baseline"] = baseline
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -177,8 +216,8 @@ def main(args):
         from dashboard import site as kit
         out = kit.write_site(Path(args.site) if args.site else config.SITE, page(blob),
                              assets={f"web/{sub}": config.PAGE_DIR / sub for sub in ("img", "fonts")}) / "index.html"
-    if runs:
-        export.bundle(out.with_name(export.NAME), survey, runs, args.runs)
+    if runs or human:
+        export.bundle(out.with_name(export.NAME), survey, runs, args.runs, outcomes, history_bytes, human=human, vintage=vintage, baseline=baseline)
     # The economy model's page beside the survey's (eeai/model/build.py), linked from both headers.
     from .model import build as model_build
     model = model_build.write(out.parent, getattr(args, "model_sims", None), getattr(args, "model_runs", None))

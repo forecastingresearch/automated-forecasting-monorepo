@@ -11,3 +11,6 @@ dependencies = []            # stdlib only: building a dashboard never needs an 
 
 [tool.setuptools]
 packages = ["dashboard"]
+
+[tool.setuptools.package-data]
+dashboard = ["web/*.html"]

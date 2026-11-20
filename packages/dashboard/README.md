@@ -40,3 +40,30 @@ view from its rows to blobs and tables, and the page's HTML, CSS and JS.
 Users: `dashboards/airo` (`redlines.pages`, `redlines.hydrate`,
 `redlines.export`), `dashboards/eeai` (`eeai.build`, `eeai.export`) and the
 production scheduler (`packages/ops`), which reads published data through it.
+
+## Pluggable question resolution
+
+A dashboard chooses its own plug-ins and passes them to
+`dashboard.resolutions.refresh(db, requests, resolvers, as_of=day)` from its
+scheduled job. Forecast calls consume a saved input snapshot. A plug-in can
+call a script or implement the Python protocol directly.
+
+| Type | Role |
+|---|---|
+| `Target(question, horizon, version)` | Identity shared by forecasts of the same outcome. Each dashboard uses its own database. |
+| `Request(target, resolver_id, rule, params)` | The versioned measurement rule and dashboard-owned parameters. |
+| `Resolver.refresh(requests, *, as_of, after)` | Called once per registered resolver with a batch of requests and its last successfully committed JSON bookmark, initially `None`. Raise on source failure. |
+| `RefreshBatch(observations, next_checkpoint)` | Zero or more observations per target. Return an empty batch when a successful check produces no evidence. |
+| `Observation(target, revision, published_at, value, evidence)` | A stable source revision ID, ISO publication date or zoned timestamp (or `None`), numeric/boolean/categorical value, and JSON evidence. The store supplies the observation time. |
+| `history(db, through=snapshot_id)` | Returns a snapshot ID and a mapping from targets to their effective observations in that snapshot. Omit `through` for the current snapshot. |
+| `select(records, view)` | Selects `first_published`, `first_observed` or `latest` for scoring. An unknown publication date makes first-published selection unavailable. |
+
+Use the selected observation's value with the forecast's metric. A probability
+and a boolean outcome can feed a Brier score; EEAI uses signed errors for
+median predictions. Aggregate each target once per named view.
+
+Resolvers run outside the SQLite write lock. The store commits the observations
+and checkpoints from all plug-ins together and rejects a stale concurrent
+refresh. Re-reading a revision is idempotent. Changing evidence under the same
+revision ID is a conflict. `correct` explicitly supersedes a mistaken record
+and retains its lineage; previously issued snapshot IDs keep their old results.

@@ -70,13 +70,14 @@ def ask(member, survey, history, today, run_id, *, panel=None, retries=1, harnes
             "grounded": hits > 0, "usage": usage, "cost_usd": round(sum(u.get("cost_usd") or 0 for u in usage), 6),
             "delivery": res.get("delivery"), "attempts": attempts, "values": got, "values_asked": want,
             "prompt": prompt, "system_prompt": baseline.SYSTEM, "reasoning": member.get("reasoning"),
-            "blocked_urls": blocked}
+            "history": history, "question_set": survey, "blocked_urls": blocked}
     rows = []
     for i, q in enumerate(survey["questions"]):
         forecasts, rationale, problems = cleaned[q["id"]]
         rows.append({"run_id": run_id, "run_date": today.isoformat(), "elicited_at": stamp,
                      "experiment": config.EXPERIMENT, "condition": config.CONDITION,
                      "instrument": survey["instrument"],
+                     **({"resolution_rule": q["resolution"]} if "resolution" in q else {}),
                      "model": member["model"], "key": member["key"], "label": member["label"],
                      "question_id": q["id"], "forecasts": forecasts, "rationale": rationale,
                      "problems": problems, "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
@@ -102,8 +103,11 @@ def select_members(args):
 
 
 def main(args):
-    survey, history = S.load(), S.history()
+    survey = S.load()
     today = date.fromisoformat(args.today) if args.today else datetime.now(timezone.utc).date()
+    from .baselines import current
+    history = S.history(current(today))
+    input_snapshot = {"baseline_sha256": hashlib.sha256(json.dumps(history, sort_keys=True).encode()).hexdigest()}
     members, provenance = select_members(args)
     harness_run = None
     if args.synthetic:
@@ -131,6 +135,15 @@ def main(args):
         with open(path, encoding="utf-8") as f:
             have = [json.loads(line) for line in f if line.strip()]
         today = date.fromisoformat(have[0]["run_date"])
+        original_call = next(r["call"] for r in have if r.get("call"))
+        input_snapshot = have[0].get("input_snapshot")
+        survey = original_call.get("question_set") or dict(survey, instrument=have[0]["instrument"])
+        history = original_call.get("history") or S.history(config.HISTORY)
+        restored, _ = instrument.build_prompt(survey, history, today)
+        if hashlib.sha256(restored.encode()).hexdigest() != have[0]["prompt_sha256"]:
+            sys.exit("Cannot reproduce the original prompt for this run")
+        if args.synthetic:
+            harness_run = synthetic.harness_run(survey, history, today)
         done = {r["key"] for r in have}
         members = [m for m in members if m["key"] not in done]
         if not members:
@@ -145,6 +158,8 @@ def main(args):
                    harness_run=harness_run, synthetic=args.synthetic)
         with lock, open(path, "a", encoding="utf-8") as f:
             for r in rows:
+                if input_snapshot is not None:
+                    r["input_snapshot"] = input_snapshot
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         return rows
 

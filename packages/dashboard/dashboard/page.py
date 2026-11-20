@@ -40,7 +40,12 @@ def manifest(page_dir):
 def skeleton(page_dir):
     """The page's chunks joined, with every marker pair as the source has it."""
     page_dir = Path(page_dir)
-    return "".join((page_dir / name).read_text(encoding="utf-8") for name in manifest(page_dir)["chunks"])
+    shared = Path(__file__).with_name("web")
+
+    def chunk(name):
+        return shared / name.removeprefix("shared/") if name.startswith("shared/") else page_dir / name
+
+    return "".join(chunk(name).read_text(encoding="utf-8") for name in manifest(page_dir)["chunks"])
 
 
 def render(page_dir, blobs):

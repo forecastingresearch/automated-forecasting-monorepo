@@ -113,3 +113,34 @@ test('tooltip model medians summarize public conditions rather than pooled means
   vm.runInContext('delete q.variantModels.recent', context);
   assert.equal(vm.runInContext('tlModelMedians(q, "2030", 0)[0].value', context), 1.5);
 });
+
+test('elicitation matrix keeps public cells, missing responses and legacy baseline aligned', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../web/demo/19-live-timeline.jsx'), 'utf8')
+    .split('/* ---------------- time-series chart ---------------- */')[0];
+  const context = vm.createContext({ window: {} });
+  vm.runInContext(source, context);
+  context.snapshots = [{ date: '2026-10-01' }, { date: '2026-11-18' }];
+  context.q = {
+    median: { '2030': [3, 50] },
+    series: [{ label: 'A', ps: { '2030': [2, 99] } }, { label: 'B', ps: { '2030': [4, 99] } }],
+    variants: { none: { '2030': [null, 5] }, recent: { '2030': [null, 9] },
+      critical: { '2030': [null, 90] }, 'news-shadow': { '2030': [null, 999] } },
+    variantModels: {
+      none: { '2030': [null, { A: 0, B: 10 }] },
+      recent: { '2030': [null, { A: 9, B: null }] },
+      critical: { '2030': [null, { A: 90 }] },
+      'news-shadow': { '2030': [null, { A: 999, Secret: 999 }] },
+    },
+  };
+  const matrix = JSON.parse(vm.runInContext('JSON.stringify(tlForecastMatrix(q, "2030", 1, snapshots))', context));
+  assert.deepEqual(matrix.rows.map(r => r.label), ['Baseline', 'Recent', 'Critical']);
+  assert.deepEqual(matrix.models, [{ label: 'A', median: 9 }, { label: 'B', median: 10 }]);
+  assert.equal(matrix.rows[0].answers.A, 0);
+  assert.equal(matrix.rows[1].answers.B, null);
+  assert.equal(matrix.rows[0].median, 5);
+  const legacy = JSON.parse(vm.runInContext('JSON.stringify(tlForecastMatrix(q, "2030", 0, snapshots))', context));
+  assert.equal(legacy.rows.length, 1);
+  assert.equal(legacy.rows[0].label, 'Baseline');
+  assert.equal(legacy.rows[0].median, 3);
+  assert.deepEqual(legacy.models, [{ label: 'A', median: 2 }, { label: 'B', median: 4 }]);
+});

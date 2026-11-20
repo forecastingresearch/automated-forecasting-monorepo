@@ -1,4 +1,5 @@
 [
+  {"id": "eeai-economic-data", "dashboard": "eeai", "kind": "refresh", "daily_utc": "15:15"},
   {"id": "rsi-weekly", "dashboard": "rsi", "kind": "forecast", "weekly_utc": "Fri 02:00"},
   {"id": "recent-news-poll", "kind": "news-poll", "daily_utc": "11:45"},
   {"id": "airo", "kind": "forecast", "paired_rationale_on": "2026-11-20", "daily_utc": "12:00"},

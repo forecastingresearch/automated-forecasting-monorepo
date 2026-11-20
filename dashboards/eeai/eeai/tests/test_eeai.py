@@ -63,11 +63,43 @@ class TestQuestionSet(unittest.TestCase):
         out, _, problems = instrument.clean_cell(s, gdp, full, later)
         self.assertEqual((sorted(out), problems), (["2029", "2030", "2050"], []))
 
-    def test_the_record_gives_a_date_its_outcome(self):
-        series = [("2024-12-31", 3.35), ("2027-01-01", 5.0), ("2028-03-01", 9.0)]
-        self.assertEqual(S.actual(series, "2025"), ("2024-12-31", 3.35))
-        self.assertEqual(S.actual(series, "2027"), ("2027-01-01", 5.0))
-        self.assertEqual(S.actual(series, "2028"), None)
+    def test_first_complete_vintage_is_reproducible(self):
+        from eeai import resolve
+        from dashboard import resolutions
+
+        def observations(series, periods, as_of, **options):
+            if series == "UNRATE":
+                return [dict(date="2026-12-01", value="4.0", realtime_start="2027-01-10",
+                             realtime_end=as_of)]
+            if series != "A191RL1A225NBEA":
+                return []
+            rows = [dict(date=p, value="2", realtime_start="2027-02-15", realtime_end=as_of)
+                    for p in periods]
+            rows[0]["realtime_end"] = "2027-03-01"
+            rows.append(dict(date=periods[0], value="5", realtime_start="2027-03-02",
+                             realtime_end=as_of))
+            return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "outcomes.sqlite"
+            for day in (15, 16):
+                self.assertEqual(resolve.refresh(date(2027, 3, day), observations, path), 1)
+            records = resolutions.snapshot(path)
+            self.assertEqual(list(records), [("gdp", "2027", 1)])
+            result = records[("gdp", "2027", 1)]
+            self.assertAlmostEqual(result["value"], 2)
+            self.assertEqual(result["vintage"], "2027-02-15")
+            self.assertEqual(sorted(result["inputs"]), [f"{y}-01-01" for y in range(2022, 2027)])
+
+    def test_january_requires_a_published_january_observation(self):
+        from eeai import resolve
+
+        q = next(q for q in self.survey["questions"] if q["id"] == "unemployment")
+        periods = resolve.dates(q["resolution"]["method"], 2027)
+        rows = [dict(date="2027-01-01", value="4.1", realtime_start="2027-02-05",
+                     realtime_end="9999-12-31")]
+        self.assertIsNone(resolve.outcome_for(q, periods, {q["resolution"]["series"]: rows}, "2027-02-04"))
+        self.assertEqual(resolve.outcome_for(q, periods, {q["resolution"]["series"]: rows}, "2027-02-05")["value"], 4.1)
 
     def test_every_question_has_its_history_and_no_markdown_left(self):
         for q in self.survey["questions"]:
@@ -239,9 +271,11 @@ class TestRunAndBuild(unittest.TestCase):
         runs = [("r1", self._rows(early)), ("r2", self._rows(late))]
         history = {k: list(v) for k, v in self.history.items()}
         history["gdp"].append(("2027-01-01", 2.0))
-        gdp = build.build(self.survey, history, runs)["questions"][0]
+        self.assertIsNone(build.build(self.survey, history, runs)["questions"][0]["horizons"][0]["actual"])
+        outcome = {"rule": self.survey["questions"][0]["resolution"], "value": 2.0}
+        gdp = build.build(self.survey, history, runs, {("gdp", "2027", 1): outcome})["questions"][0]
         h27 = gdp["horizons"][0]
-        self.assertEqual((h27["id"], h27["asked"], h27["actual"]), ("2027", "2026-11-11", {"date": "2027-01-01", "value": 2.0}))
+        self.assertEqual((h27["id"], h27["asked"], h27["actual"]), ("2027", "2026-11-11", {"date": "2027-01-01", **outcome}))
         self.assertEqual((gdp["horizons"][1]["asked"], gdp["horizons"][1]["actual"]), ("2027-03-01", None))
         first, second = (s["ensemble"] for s in gdp["series"])
         self.assertNotIn("2027", second)

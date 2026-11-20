@@ -16,12 +16,19 @@ def load(path=QUESTIONS):
         return json.load(f)
 
 
-def history(path=HISTORY):
+def history(path=None):
     """{series: [(date, value)]}, oldest first."""
-    out = {}
+    if path is None:
+        from .baselines import current
+        path = current()
     with open(path, encoding="utf-8", newline="") as f:
-        for r in csv.DictReader(f):
-            out.setdefault(r["series"], []).append((r["date"], float(r["value"])))
+        return read_history(f)
+
+
+def read_history(f):
+    out = {}
+    for r in csv.DictReader(f):
+        out.setdefault(r["series"], []).append((r["date"], float(r["value"])))
     return out
 
 
@@ -56,11 +63,16 @@ def instruments(survey):
     return [survey["instrument"]] + list(survey.get("continues") or [])
 
 
-def actual(series, horizon):
-    """The record's value for a horizon: the point nearest the beginning of
-    that year, within 45 days (the survey's series are dated that way), or None."""
-    from datetime import date
-    target = date(int(horizon), 1, 1)
-    near = [(abs((date.fromisoformat(d) - target).days), d, v) for d, v in series or []]
-    near = [x for x in near if x[0] <= 45]
-    return min(near)[1:] if near else None
+def resolution_text(rule):
+    method = rule["method"]
+    if method == "adjudicated":
+        return rule["period"]
+    descriptions = {
+        "january": "Use January of the horizon year.",
+        "five_year_growth": "Compound the five annual growth rates preceding the horizon year.",
+        "q4_five_year_growth": "Compound the five Q4 year-over-year growth rates preceding the horizon year.",
+        "employment_share": "Divide the sum of the January payroll counts by the January civilian labor force.",
+        "anchored_index": "Scale the horizon year's Q1 index to the survey's Q1 2023 labor share.",
+        "income_2023_dollars": "Use the horizon income year and convert the release to 2023 dollars using the 2023 nominal-to-real income ratio.",
+    }
+    return descriptions[method] + " Use the first FRED vintage containing all required inputs."

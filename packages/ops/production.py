@@ -15,13 +15,16 @@ import socket
 from socketserver import ThreadingUnixStreamServer
 import subprocess
 import sys
+import time
 import uuid
+import zipfile
 
 # This script runs on the system interpreter, outside the release's venv.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'dashboard'))
 from dashboard import page, site as site_kit  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard_projects import AIRO_FILES, DASHBOARDS  # noqa: E402
+import eeai_operator  # noqa: E402
 
 # Where things are in a release: the repository's layout.
 AIRO = 'dashboards/airo'                    # its index.html, web/, data/, results/ and code/
@@ -84,6 +87,9 @@ def output(argv, **kw):
     return run(argv, capture_output=True, text=True, **kw).stdout.strip()
 
 
+DEFAULT_REFRESH_UTC = '15:15'
+
+
 def validate_jobs(jobs):
     ids = set()
     for job in jobs:
@@ -91,11 +97,16 @@ def validate_jobs(jobs):
             raise ValueError('Job IDs must be unique safe names')
         ids.add(job['id'])
         owner = job.get('dashboard', 'airo')
-        if owner not in DASHBOARDS or (owner != 'airo' and job['kind'] not in ('forecast', 'smoke')):
+        if owner not in DASHBOARDS or (owner != 'airo' and job['kind'] not in ('forecast', 'refresh', 'smoke')):
             raise ValueError('Unknown dashboard or unsupported dashboard job')
-        if job['kind'] not in ('forecast', 'forecastbench', 'news-poll', 'smoke'):
+        if job['kind'] == 'refresh' and not DASHBOARDS[owner].refresh:
+            raise ValueError(f'{owner} has no registered refresh command')
+        if job['kind'] not in ('forecast', 'forecastbench', 'news-poll', 'refresh', 'smoke'):
             raise ValueError('Unknown job kind')
-        if sum(k in job for k in ('at', 'daily_utc', 'weekly_utc')) != 1:
+        schedules = sum(k in job for k in ('at', 'daily_utc', 'weekly_utc'))
+        if schedules == 0 and job['kind'] == 'refresh':
+            continue  # The scheduler uses the daily refresh default.
+        if schedules != 1:
             raise ValueError('Specify one UTC schedule: at, daily_utc or weekly_utc')
         if 'at' in job:
             when = datetime.fromisoformat(job['at'].replace('Z', '+00:00'))
@@ -129,7 +140,7 @@ def scheduled_between(jobs, after, before):
             if 'weekly_utc' in job:
                 weekday, clock = job['weekly_utc'].split()
             else:
-                clock = job['daily_utc']
+                clock = job.get('daily_utc', DEFAULT_REFRESH_UTC)
             hour, minute = map(int, clock.split(':'))
             start = after.replace(hour=hour, minute=minute, second=0, microsecond=0)
             days = (before.date() - after.date()).days
@@ -150,21 +161,22 @@ def paged(ledger):
 
 
 class Runtime:
-    def __init__(self, config, config_path=None):
+    def __init__(self, config, config_path=None, *, read_only=False):
         self.config = config
         self.config_path = config_path
         self.root = Path(config['root']).expanduser().resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self.root.mkdir(parents=True, exist_ok=True)
         self.name = config.get('dashboard', 'airo')
         self.dashboard = DASHBOARDS[self.name]
         self.current = self.root / 'current'
-        if self.current.exists():
-            selected = json.loads((self.current / 'release.json').read_text())
+        if not read_only and self.current.exists():
+            selected = self.release_metadata(self.current)
             if selected.get('dashboard', 'airo') != self.name:
                 raise ValueError('Configured dashboard does not own the selected release')
         self.state = self.root / 'state'
         self.panel_runtime = None
-        if 'panel_runtime_config' in config:
+        if not read_only and 'panel_runtime_config' in config:
             authority = Path(config['panel_runtime_config'])
             primary = json.loads(authority.read_text())
             if self.name == 'airo' or primary.get('dashboard', 'airo') != 'airo' or 'panel_runtime_config' in primary:
@@ -174,8 +186,16 @@ class Runtime:
                 raise ValueError('Dashboard runtimes require separate roots and sockets')
         self.home = self.panel_runtime.home if self.panel_runtime else self.root / 'home'
         self.mirror = self.root / 'repository.git'
-        for name in ('releases', 'sites', 'runs', 'logs', 'tmp'):
-            (self.root / name).mkdir(exist_ok=True)
+        if not read_only:
+            for name in ('releases', 'sites', 'runs', 'logs', 'tmp'):
+                (self.root / name).mkdir(exist_ok=True)
+
+    def release_metadata(self, release, site=None):
+        # The EEAI site pointer commits a verified publication and its metadata together.
+        metadata = (site or release / 'site') / 'release.json'
+        if self.name == 'eeai' and metadata.is_file():
+            return json.loads(metadata.read_text())
+        return json.loads((release / 'release.json').read_text())
 
     @contextmanager
     def lock(self):
@@ -202,6 +222,8 @@ class Runtime:
                    NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1')
         panel_dir = (self.panel_runtime or self).state / 'data'
         env.update(FORECASTER_ECI_DIR=str(panel_dir), EEAI_ECI_DIR=str(panel_dir))
+        if self.name == 'eeai':
+            env['EEAI_RESULTS'] = str(self.state / 'economic-data')
         return env
 
     def jobs(self, code):
@@ -269,7 +291,7 @@ class Runtime:
             code = self.current.resolve(strict=True) / 'code'
             env = self.environment(code, self.root / 'tmp')
             news = job['kind'] == 'news-poll'
-            argv = [code / '.venv/bin/python', '-m', 'fri_forecaster.alert', 'send', '--deployment', (self.name if job['kind'] == 'forecast' else DEPLOYMENT[job['kind']]),
+            argv = [code / '.venv/bin/python', '-m', 'fri_forecaster.alert', 'send', '--deployment', (self.name if job['kind'] in ('forecast', 'refresh') else DEPLOYMENT[job['kind']]),
                     '--severity', 'notice' if news else 'page', '--title', 'news fetch failed' if news else title,
                     *(['--log', str(log)] if log else []), message]
             subprocess.run(argv, cwd=code, env=env, timeout=120, check=False)
@@ -360,7 +382,7 @@ class Runtime:
             removed = self.prune_locked()
         print(json.dumps({'removed': removed, 'storage': self.storage_status()}, indent=2))
 
-    def merged_sha(self, requested=None):
+    def merged_sha(self, requested=None, *, wait=False):
         if not self.mirror.exists():
             run(['git', 'clone', '--bare', self.config['repository'], self.mirror])
         run(['git', '-C', self.mirror, 'fetch', 'origin', '+refs/heads/main:refs/heads/main'])
@@ -368,15 +390,21 @@ class Runtime:
         if not re.fullmatch(r'[0-9a-f]{40}', sha):
             raise ValueError('Expected a full commit SHA')
         run(['git', '-C', self.mirror, 'merge-base', '--is-ancestor', sha, 'main'])
-        checks = json.loads(output(['gh', 'api', f"repos/{self.config['github_repository']}/commits/{sha}/check-runs?per_page=100"]))['check_runs']
-        # GitHub returns newest first. A newer failure must not be hidden by an old pass.
-        latest = {}
-        for check in sorted(checks, key=lambda x: x['id'], reverse=True):
-            if check.get('app', {}).get('slug') == 'github-actions':
-                latest.setdefault(check['name'], check)
-        failed = [name for name in REQUIRED_CHECKS if name not in latest or latest[name]['status'] != 'completed' or latest[name]['conclusion'] != 'success']
-        if failed:
-            raise RuntimeError('Required checks have not passed for this commit: ' + ', '.join(sorted(failed)))
+        deadline = time.monotonic() + 1800
+        while True:
+            checks = json.loads(output(['gh', 'api', f"repos/{self.config['github_repository']}/commits/{sha}/check-runs?per_page=100"]))['check_runs']
+            # GitHub returns newest first. A newer failure must not be hidden by an old pass.
+            latest = {}
+            for check in sorted(checks, key=lambda x: x['id'], reverse=True):
+                if check.get('app', {}).get('slug') == 'github-actions':
+                    latest.setdefault(check['name'], check)
+            failed = [name for name in REQUIRED_CHECKS if name not in latest or latest[name]['status'] != 'completed' or latest[name]['conclusion'] != 'success']
+            if not failed:
+                break
+            terminal = any(latest[name]['status'] == 'completed' for name in failed if name in latest)
+            if not wait or terminal or time.monotonic() >= deadline:
+                raise RuntimeError('Required checks have not passed for this commit: ' + ', '.join(sorted(failed)))
+            time.sleep(15)
         return sha
 
     def stage_data(self, code, copy_results=True):
@@ -435,6 +463,20 @@ class Runtime:
             if blob.get('synthetic'):
                 raise RuntimeError('Cannot publish synthetic survey results')
 
+    def published_baseline(self, site):
+        blob = page.payload((site / 'index.html').read_bytes(), self.dashboard.block)
+        return eeai_operator.baseline_metadata(blob)
+
+    def verify_economic_site(self, site):
+        self.verify_site(site)
+        baseline = self.published_baseline(site)
+        if baseline['source'] != 'fred':
+            raise RuntimeError('EEAI refresh candidate lacks a dated FRED baseline')
+        with zipfile.ZipFile(site / eeai_operator.ARCHIVE) as archive:
+            if json.loads(archive.read('baseline.json')) != baseline or archive.testzip() is not None:
+                raise RuntimeError('EEAI download differs from the candidate baseline or is corrupt')
+        return baseline
+
 
     def probe(self, release):
         """Check the actual serving process sees the newly selected release."""
@@ -451,14 +493,15 @@ class Runtime:
         finally:
             connection.close()
 
-    def publish_public(self, site):
+    def publish_public(self, site, *, quiet=False):
         """An installation may mirror the verified static site to a separate ingress."""
         command = self.config.get('public_publisher')
         if command is None:
             return  # ingress serves the runtime socket directly
         if not isinstance(command, list) or not command or not all(isinstance(arg, str) and arg for arg in command):
             raise ValueError('public_publisher must be a nonempty argv list')
-        run([*command, site.resolve(strict=True)], timeout=900)
+        streams = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL} if quiet else {}
+        run([*command, site.resolve(strict=True)], timeout=900, **streams)
 
     def republish(self):
         with self.lock():
@@ -469,21 +512,33 @@ class Runtime:
                 raise RuntimeError('Selected site differs from its recorded snapshot')
             self.publish_public(site)
 
-    def activate(self, release):
+    def activate(self, release, *, verify=False):
+        receipt = {}
         previous = self.current.resolve() if self.current.exists() else None
         link(release, self.current)
         try:
             self.probe(release)
             self.publish_public(release / 'site')
+            if verify:
+                meta = self.release_metadata(release)
+                report = eeai_operator.check_public(self.config, release / 'site', meta, content=True)
+                if report['result'] != 'verified':
+                    raise RuntimeError(f"Public verification failed: {report['result']}")
+                receipt = dict(verified=True, public_url=report['url'], frontend_commit=meta['frontend_commit'],
+                               data_snapshot_sha256=meta['data_snapshot']['sha256'])
         except Exception:
             if previous:
                 link(previous, self.current)
+                if verify:
+                    self.publish_public(previous / 'site')
             else:
                 self.current.unlink()
             raise
         if previous and previous != release:
             link(previous, self.root / 'previous')
-        write_json(self.root / 'last-deploy.json', {'release': release.name, 'previous': previous.name if previous else None, 'at': datetime.now(timezone.utc).isoformat()})
+        write_json(self.root / 'last-deploy.json', {**receipt, 'release': release.name, 'previous': previous.name if previous else None, 'at': datetime.now(timezone.utc).isoformat()})
+
+        return receipt
 
     def publish_frontend(self, code, site):
         if not self.current.exists():
@@ -533,9 +588,11 @@ class Runtime:
             raise RuntimeError('Candidate predates multi-dashboard deployment')
         return script if 'build-release' in usage else None
 
-    def deploy(self, requested=None, keep_publication=False, publish_data=False):
+    def deploy(self, requested=None, keep_publication=False, publish_data=False, wait=False):
         if keep_publication and publish_data:
             raise ValueError('Choose either preserved publication or new data publication')
+        if wait:
+            requested = self.merged_sha(requested, wait=True)
         with self.lock():
             self.prune_locked()
             self.require_space(publish_data=publish_data)
@@ -550,7 +607,9 @@ class Runtime:
                 script = self.builder(code)
                 if script:
                     run([sys.executable, script, '--config', self.config_path, 'build-release', '--release', name, '--commit', sha,
-                         *(['--keep-publication'] if keep_publication else []), *(['--publish-data'] if publish_data else [])])
+                         *(['--wait'] if wait else []), *(['--keep-publication'] if keep_publication else []), *(['--publish-data'] if publish_data else [])])
+                elif wait:
+                    raise RuntimeError('Candidate does not support verified deployment')
                 else:   # a commit from before releases built themselves
                     self.build_release(name, sha, keep_publication=keep_publication, publish_data=publish_data)
             except Exception:
@@ -558,7 +617,7 @@ class Runtime:
                 write_json(release / 'failed.json', {'at': datetime.now(timezone.utc).isoformat()})
                 raise
 
-    def build_release(self, name, sha, keep_publication=False, publish_data=False):
+    def build_release(self, name, sha, keep_publication=False, publish_data=False, wait=False):
         """Install, publish and activate the checked-out release `name`. Called
         by deploy, which holds operation.lock (in the live release's process
         when this is the candidate's)."""
@@ -608,12 +667,12 @@ class Runtime:
         link(site, release / 'site')
         write_json(release / 'release.json', metadata)
         self.attach_state(code)
-        self.activate(release)
+        receipt = self.activate(release, verify=True) if wait else self.activate(release)
         try:
             self.prune_locked()
         except (OSError, RuntimeError) as exc:
             print(f'Retention needs attention: {exc}', file=sys.stderr)
-        print(json.dumps({'deployed': name, 'commit': sha}))
+        print(json.dumps({'deployed': name, 'commit': sha, **(receipt or {})}))
 
     def rollback(self):
         with self.lock():
@@ -622,9 +681,94 @@ class Runtime:
             self.activate(release)
             print(json.dumps({'rolled_back': release.name}))
 
-    def execute_job(self, key, job, scheduled_minute=None):
+    def publish_economic_site(self, release, site, receipt, set_stage):
+        """Select the candidate only after the web host serves the exact files."""
+        old_site = (release / 'site').resolve(strict=True)
+        previous = self.release_metadata(release)
+        current_snapshot = (previous.get('data_snapshot') or {}).get('sha256')
+        url = eeai_operator.public_url(self.config)
+        if not self.config.get('public_publisher') or not url:
+            set_stage('publish_preflight')
+            reason = ('HTTPS public_url required' if not url else 'external public_publisher required')
+            receipt['public_verification'] = {'url': url, 'result': 'unverifiable', 'reason': reason}
+            raise RuntimeError(f'EEAI verified refresh: {reason}')
+        self.verify_site(old_site)
+        if not (old_site / 'release.json').is_file():
+            raise RuntimeError('Previous publication lacks release.json for recovery')
+        if current_snapshot and current_snapshot != data_snapshot(old_site, self.dashboard.downloads)['sha256']:
+            raise RuntimeError('Previous publication differs from its recorded snapshot')
+        metadata = {**previous, 'publication': 'rebuilt', 'publication_commit': previous['commit'],
+                    'frontend_commit': previous['commit'],
+                    'data_snapshot': {**data_snapshot(site, self.dashboard.downloads),
+                                      'origin_commit': previous['commit'], 'source_release': site.name}}
+        write_json(site / 'release.json', metadata)
+        receipt.update(candidate_snapshot=metadata['data_snapshot']['sha256'], previous_snapshot=current_snapshot,
+                       previous_publication=old_site.name)
+        set_stage('transfer')
+        try:
+            try:
+                self.publish_public(site, quiet=True)
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                receipt['public_verification'] = {'url': url, 'source': 'public_publisher',
+                                                  'result': 'unverifiable', 'reason': 'transfer failed'}
+                raise RuntimeError(f'EEAI public_publisher transfer failed ({type(exc).__name__})') from None
+            set_stage('verify_public')
+            report = eeai_operator.check_public(self.config, site, metadata, content=True)
+            receipt['public_verification'] = report
+            if report['result'] != 'verified':
+                raise RuntimeError(f"EEAI {report['source']} {report['url']}: {report['result']}")
+            set_stage('select_publication')
+            link(Path('site/release.json'), release / 'release.json')
+            link(site, release / 'site')
+        except Exception:
+            # The old local selection is authoritative. Restore it publicly even
+            # when the legacy publisher may already have rolled itself back.
+            try:
+                self.publish_public(old_site, quiet=True)
+                old_report = eeai_operator.check_public(self.config, old_site, previous, content=True)
+                receipt['recovery'] = ('restored' if old_report['result'] == 'verified'
+                                       else 'republished_unverified')
+            except Exception:
+                receipt['recovery'] = 'failed'
+            raise
+        receipt.update(verified_at=datetime.now(timezone.utc).isoformat(),
+                       data_snapshot_sha256=metadata['data_snapshot']['sha256'],
+                       frontend_commit=metadata['frontend_commit'])
+
+    def economic_refresh(self, release, site, env, receipt, set_stage, retry):
+        code = release / 'code'
+        if retry:
+            set_stage('load_retry')
+            prior = json.loads((self.root / 'runs' / (retry + '.json')).read_text())
+            selected = (release / 'site').resolve(strict=True)
+            if (prior.get('kind') != 'refresh' or prior.get('status') != 'failed'
+                    or prior.get('stage') not in ('transfer', 'verify_public', 'select_publication')
+                    or prior.get('release') != release.name or prior.get('previous_publication') != selected.name
+                    or prior.get('previous_snapshot') != (self.release_metadata(release).get('data_snapshot') or {}).get('sha256')):
+                raise RuntimeError('Retry requires a failed transfer or verification against the still-selected publication')
+            saved = self.root / 'sites' / ('job-' + retry)
+            if data_snapshot(saved, self.dashboard.downloads)['sha256'] != prior.get('candidate_snapshot'):
+                raise RuntimeError('Saved retry candidate differs from its receipt')
+            shutil.copytree(saved, site, dirs_exist_ok=True)
+        else:
+            with (self.root / 'logs' / (receipt['key'] + '.log')).open('a') as log:
+                set_stage('upstream')
+                # Keep the invoking service's bypass semantics for the FRED fetch.
+                fred_env = {k: v for k, v in env.items() if k not in ('NO_PROXY', 'no_proxy')}
+                fred_env.update({k: os.environ[k] for k in ('NO_PROXY', 'no_proxy') if k in os.environ})
+                run([code / '.venv/bin/python', *self.dashboard.refresh],
+                    cwd=code / self.dashboard.project, env=fred_env, stdout=log, stderr=subprocess.STDOUT)
+                set_stage('build')
+                self.build_data(code, site, env, stdout=log, stderr=subprocess.STDOUT)
+        set_stage('validate')
+        receipt['baseline'] = self.verify_economic_site(site)
+        self.publish_economic_site(release, site, receipt, set_stage)
+
+    def execute_job(self, key, job, scheduled_minute=None, *, retry=None):
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', key):
             raise ValueError('Unsafe run key')
+        if retry and (job['kind'] != 'refresh' or not re.fullmatch(r'[a-zA-Z0-9_-]+', retry) or retry == key):
+            raise ValueError('Invalid refresh retry ID')
         with self.lock():
             receipt = self.root / 'runs' / (key + '.json')
             if scheduled_minute and datetime.now(timezone.utc).replace(second=0, microsecond=0) != scheduled_minute:
@@ -634,20 +778,31 @@ class Runtime:
             release = self.current.resolve(strict=True)
             code = release / 'code'
             started = {'key': key, 'job': job['id'], 'release': release.name, 'status': 'running', 'started': datetime.now(timezone.utc).isoformat()}
+            refresh = self.name == 'eeai' and job['kind'] == 'refresh'
+            if refresh:
+                started.update(kind='refresh', stage='preflight')
+                if retry:
+                    started['retry_of'] = retry
             write_json(receipt, started)
             site = self.root / 'sites' / ('job-' + key)
             ledger = self.root / 'runs' / (key + '.alerts.jsonl')
             airo = code / AIRO
-            argv = {'forecast': ['bash', airo / 'code/cron_run.sh'],
+            argv = {'refresh': [code / '.venv/bin/python', *self.dashboard.refresh],
+                    'forecast': ['bash', airo / 'code/cron_run.sh'],
                     'news-poll': [code / '.venv/bin/python', airo / 'code/recent_news.py', 'poll'],
                     'forecastbench': ['bash', code / FORECASTBENCH / 'scripts/fb_cron.sh', job.get('due', '')],
-                    'smoke': [code / '.venv/bin/python', '-c', 'import redlines, eeai, forecastbench, fri_forecaster, dashboard; print("scheduled runtime smoke passed")']}[job['kind']]
+                    'smoke': [code / '.venv/bin/python', '-c', 'import redlines, eeai, forecastbench, fri_forecaster, dashboard; print("scheduled runtime smoke passed")']}.get(job['kind'])
             survey_job = job['kind'] == 'forecast' and self.name != 'airo'
             if job['kind'] == 'smoke' and self.name != 'airo':
                 argv = [code / '.venv/bin/python', *self.dashboard.forecast[:2], '--help']
             cwd = code if job['kind'] in ('forecastbench', 'smoke') else code / self.dashboard.project
             stage = 'preflight FAILED'
             launched = False
+
+            def set_refresh_stage(value):
+                started['stage'] = value
+                write_json(receipt, started)
+
             try:
                 env = self.environment(code, site)
                 env['FRI_ALERT_LEDGER'] = str(ledger)
@@ -659,22 +814,26 @@ class Runtime:
                     if not due.strip():
                         started.update(status='skipped', reason='No forecast conditions due')
                         return True
-                expects_site = survey_job or any(len(row.split()) > 1 and row.split()[1] == 'publish'
+                expects_site = job['kind'] == 'refresh' or survey_job or any(len(row.split()) > 1 and row.split()[1] == 'publish'
                                    for row in due.splitlines())
-                if job['kind'] == 'forecast':
+                if job['kind'] == 'forecast' or (refresh and not retry):
                     self.prune_locked()
                 if job['kind'] != 'smoke':
                     self.require_space(publish_data=expects_site, job_kind=job['kind'])
                 site.mkdir()
+                if refresh:
+                    self.economic_refresh(release, site, env, started, set_refresh_stage, retry)
+                    started.update(status='succeeded', stage='verified')
+                    return True
                 stage = 'run FAILED'
                 with (self.root / 'logs' / (key + '.log')).open('a') as log:
                     if survey_job:
                         if self.panel_runtime:
                             primary = self.panel_runtime
                             primary_code = primary.current.resolve(strict=True) / 'code'
-                            refresh = primary_code / AIRO / 'code/refresh_panel.sh'
+                            panel_refresh = primary_code / AIRO / 'code/refresh_panel.sh'
                             try:
-                                run(['bash', refresh], cwd=refresh.parent.parent,
+                                run(['bash', panel_refresh], cwd=panel_refresh.parent.parent,
                                     env=primary.environment(primary_code, primary.root / 'tmp'),
                                     stdout=log, stderr=subprocess.STDOUT)
                             finally:
@@ -709,7 +868,7 @@ class Runtime:
                         self.build_data(code, site, env, stdout=log, stderr=subprocess.STDOUT)
                 if expects_site or (site / 'index.html').exists():
                     self.verify_site(site)
-                    meta = json.loads((release / 'release.json').read_text())
+                    meta = self.release_metadata(release)
                     meta.update(publication='rebuilt', publication_commit=meta['commit'], frontend_commit=meta['commit'],
                                 data_snapshot={**data_snapshot(site, self.dashboard.downloads), 'origin_commit': meta['commit'], 'source_release': 'job-' + key})
                     write_json(site / 'release.json', meta)
@@ -718,16 +877,19 @@ class Runtime:
                     self.publish_public(site)
                 started.update(status='succeeded')
             except Exception as exc:
-                started.update(status='failed', error=type(exc).__name__, stage=stage)
+                failed_stage = started['stage'] if refresh else stage
+                started.update(status='failed', error=type(exc).__name__, stage=failed_stage)
                 # Keep the reason in the private log, including failures before launch.
                 with (self.root / 'logs' / (key + '.log')).open('a') as log:
-                    print(f'{stage}: {type(exc).__name__}: {exc}', file=log)
+                    print(f'{failed_stage}: {type(exc).__name__}: {exc}', file=log)
                 if job['kind'] != 'smoke' and not paged(ledger):  # the job's own page says more than this one
                     failure = 'failed'
                     if job['kind'] == 'forecast':
                         failure = 'failed to publish dashboard' if stage == 'publish FAILED' else 'failed to produce forecast'
-                    self.alert(job, f"{key}: {failure} ({type(exc).__name__}). It is not retried.",
-                               log=self.root / 'logs' / (key + '.log'), title=stage)
+                    retry_note = 'It is not retried automatically.' if refresh else 'It is not retried.'
+                    self.alert(job, f"{key}: {failure} ({type(exc).__name__}). {retry_note}",
+                               log=self.root / 'logs' / (key + '.log'),
+                               title=f'{failed_stage} FAILED' if refresh else stage)
                 raise
             finally:
                 try:
@@ -796,13 +958,139 @@ class Runtime:
         for key, job in due_jobs(jobs, now):
             self.execute_job(key, job, scheduled_minute=now.replace(second=0, microsecond=0))
 
+    def refresh(self, key, retry):
+        try:
+            jobs = [job for job in self.jobs(self.current / 'code') if job['kind'] == 'refresh']
+        except FileNotFoundError:
+            jobs = []
+        if len(jobs) != 1:
+            raise ValueError('Select an active EEAI release with one registered economic refresh job')
+        key = key or 'eeai-refresh-' + uuid.uuid4().hex[:12]
+        if not re.fullmatch(r'[a-zA-Z0-9_-]+', key):
+            raise ValueError('Invalid refresh run ID')
+        if retry and (not re.fullmatch(r'[a-zA-Z0-9_-]+', retry) or retry == key):
+            raise ValueError('Invalid refresh retry ID')
+        receipt = self.root / 'runs' / (key + '.json')
+        try:
+            self.execute_job(key, jobs[0], retry=retry)
+        except Exception:
+            if not receipt.is_file():
+                raise RuntimeError('Unable to create the EEAI refresh receipt') from None
+        result = json.loads(receipt.read_text())
+        if result.get('job') != jobs[0]['id'] or result.get('retry_of') != retry:
+            raise ValueError('Refresh run ID already belongs to a different request')
+        print(json.dumps(result, indent=2))
+        return result.get('stage') == 'verified' and result['status'] == 'succeeded'
+
+    def doctor(self):
+        report = {'hostname': socket.gethostname(), 'project': self.name}
+        scheduler, route, env_source = eeai_operator.scheduler(self.config)
+        scheduler.update(jobs_enabled=(self.root / 'jobs-enabled').exists(), environment_source=env_source)
+        report['scheduler'] = scheduler
+        report['https_proxy_settings'] = 'unknown'
+        report['fred'] = {'destination': eeai_operator.FRED_HOST, 'route': 'unknown', 'result': 'unverifiable'}
+        if route is not None:
+            report['https_proxy_settings'] = ('matched' if eeai_operator.proxy_settings(route)
+                                                == eeai_operator.proxy_settings(os.environ) else 'mismatched')
+            report['fred'] = eeai_operator.check_fred(route)
+        scheduler['installation_matches'] = None
+        if route is not None and self.config_path:
+            scheduler_dir = Path(route.get('DASHBOARD_CONFIG_DIR', '/etc/fri-dashboards'))
+            if scheduler_dir.is_absolute():
+                scheduled_config = scheduler_dir / (self.name + '.json')
+                try:
+                    scheduler['installation_matches'] = scheduled_config.samefile(self.config_path)
+                except FileNotFoundError:
+                    scheduler['installation_matches'] = False
+                except OSError:
+                    pass
+        report['completed_runs'] = {'source': 'state/results',
+                                    'result': ('run_files_present' if any(p.is_file() for p in (self.state / 'results').glob('*.jsonl'))
+                                               else 'missing_run_files')}
+        try:
+            active = self.current.resolve(strict=True)
+            metadata = self.release_metadata(active)
+            if metadata.get('dashboard') != self.name:
+                raise ValueError('Selected release belongs to another runtime')
+            report['release'] = {'release': active.name, 'code_commit': metadata.get('commit'),
+                                 'frontend_commit': eeai_operator.frontend_commit(metadata),
+                                 'data_snapshot_sha256': (metadata.get('data_snapshot') or {}).get('sha256')}
+        except (AttributeError, OSError, TypeError, ValueError):
+            metadata = {}
+            report['release'] = None
+        report['public_delivery'] = eeai_operator.check_public(self.config, None, metadata)
+        print(json.dumps(report, indent=2))
+        return (report['release'] is not None and report['https_proxy_settings'] == 'matched'
+                and report['fred']['result'] == 'missing_key_response'
+                and report['public_delivery']['result'] == 'verified'
+                and report['completed_runs']['result'] == 'run_files_present'
+                and scheduler['timer_dispatches_service'] is True and scheduler['timer_activity'] == 'active'
+                and scheduler['timer_enablement'] in ('enabled', 'enabled-runtime')
+                and scheduler['jobs_enabled'] and scheduler['installation_matches'] is True
+                and scheduler['minute_calendar'] is True)
+
+    def economic_status(self, release, site, jobs, enabled, receipts, now):
+        baseline = {'source': 'unknown', 'as_of': None}
+        if site:
+            try:
+                baseline = self.published_baseline(site)
+            except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+                pass  # Imported publications may predate the EEAI data block.
+        economic_jobs = [job for job in jobs if job['kind'] == 'refresh']
+        ids = {'eeai-economic-data', *(job['id'] for job in economic_jobs)}
+        refreshes = [r for r in receipts if r.get('kind') == 'refresh' or r.get('job') in ids]
+        verified = max((r for r in refreshes if r.get('status') == 'succeeded' and r.get('verified_at')
+                        and r.get('stage') == 'verified'), key=lambda r: r['verified_at'], default=None)
+        failed = next((r for r in refreshes if r.get('status') in ('failed', 'missed', 'interrupted')), None)
+        timer, triggers = eeai_operator.scheduler_timer(self.config)
+        state, upcoming = 'disabled', None
+        if enabled:
+            service = self.config.get('scheduler_service', 'fri-dashboard-tick.service')
+            if (timer['timer_activity'] == 'unknown'
+                    or (timer['timer_activity'] == 'active' and (not triggers or timer['minute_calendar'] is not True))):
+                state = 'unknown'
+            elif timer['timer_activity'] == 'active' and service in triggers:
+                unit = eeai_operator.unit_properties(service, ('ExecStart', 'LoadState'))
+                _, runs_tick = eeai_operator.tick_command(unit)
+                if runs_tick:
+                    recurring = [job for job in economic_jobs if 'at' not in job]
+                    future = [at for _, _, at in scheduled_between(recurring, now, now + timedelta(days=8))]
+                    future.extend(at for job in economic_jobs if 'at' in job
+                                  and (at := datetime.fromisoformat(job['at'].replace('Z', '+00:00'))) > now)
+                    state = 'scheduled' if future else 'unscheduled'
+                    upcoming = min(future).isoformat() if future else None
+                else:
+                    state = 'unknown'
+        return {'frontend_commit': eeai_operator.frontend_commit(release or {}), 'published_baseline': baseline,
+                'latest_verified_refresh': verified, 'latest_refresh_failure': failed,
+                'economic_schedule': {**timer, 'state': state, 'next_scheduled_utc': upcoming}}
+
     def status(self):
-        print(json.dumps({'storage': self.storage_status(),
-                          'release': json.loads((self.current / 'release.json').read_text()) if self.current.exists() else None,
-                          'jobs_enabled': (self.root / 'jobs-enabled').exists(),
-                          'jobs': self.jobs(self.current / 'code') if self.current.exists() else [],
-                          'recent_runs': sorted((json.loads(p.read_text()) for p in (self.root / 'runs').glob('*.json')),
-                                                key=lambda receipt: receipt.get('started', ''), reverse=True)[:10]}, indent=2))
+        active = self.current.resolve() if self.current.exists() else None
+        site = (active / 'site').resolve() if active else None
+        release, jobs = None, []
+        if active:
+            try:
+                release = self.release_metadata(active, site)
+                if self.name == 'eeai' and release.get('dashboard') != self.name:
+                    release = None
+            except (AttributeError, OSError, TypeError, ValueError):
+                if self.name != 'eeai':
+                    raise
+                release = None
+            try:
+                jobs = self.jobs(active / 'code')
+            except FileNotFoundError:
+                if self.name != 'eeai':
+                    raise
+        enabled = (self.root / 'jobs-enabled').exists()
+        receipts = sorted((json.loads(p.read_text()) for p in (self.root / 'runs').glob('*.json')),
+                          key=lambda receipt: receipt.get('started', ''), reverse=True)
+        status = {'storage': self.storage_status() if self.root.exists() else None, 'release': release,
+                  'jobs_enabled': enabled, 'jobs': jobs, 'recent_runs': receipts[:10]}
+        if self.name == 'eeai':
+            status.update(self.economic_status(release, site, jobs, enabled, receipts, datetime.now(timezone.utc)))
+        print(json.dumps(status, indent=2))
 
     def serve(self):
         runtime = self
@@ -828,19 +1116,33 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default=os.environ.get('AIRO_RUNTIME_CONFIG', str(Path.home() / '.config/airo/runtime.json')))
     parser.add_argument('command', choices=['deploy', 'rollback', 'status', 'tick', 'serve', 'smoke', 'prune', 'storage', 'build-release',
-                                            'configure-forecastbench', 'check-forecastbench-upload', 'run-dashboard', 'republish'])
+                                            'configure-forecastbench', 'check-forecastbench-upload', 'run-dashboard', 'republish',
+                                            'doctor', 'refresh'])
     parser.add_argument('--upload-prefix', help='configure-forecastbench: gs://bucket/team-prefix/binary; key JSON on stdin')
     parser.add_argument('--due', help='check-forecastbench-upload: round folder date for a .txt access probe')
     parser.add_argument('--commit')
+    parser.add_argument('--wait', action='store_true', help='EEAI deploy: wait for required checks and verify the served release')
     parser.add_argument('--release', help='build-release only (deploy runs it in the candidate): the checked-out release to build')
     publication = parser.add_mutually_exclusive_group()
     publication.add_argument('--keep-publication', action='store_true', help='Retain the entire website while deploying code and schedules')
     publication.add_argument('--publish-data', action='store_true', help='Rebuild and validate forecast data as part of deployment; never launches forecast jobs')
     parser.add_argument('--run-id', help='unique durable receipt ID (required for a paid manual run)')
+    parser.add_argument('--verify', action='store_true', help='refresh: require verification of the served publication')
+    parser.add_argument('--retry', metavar='RUN_ID', help='refresh: retry publication of a failed verified-refresh candidate')
     args = parser.parse_args()
-    runtime = Runtime(json.loads(Path(args.config).read_text()), config_path=args.config)
-    if args.command == 'deploy': runtime.deploy(args.commit, keep_publication=args.keep_publication, publish_data=args.publish_data)
-    elif args.command == 'build-release': runtime.build_release(args.release, args.commit, keep_publication=args.keep_publication, publish_data=args.publish_data)
+    config = json.loads(Path(args.config).read_text())
+    if args.wait and (config.get('dashboard') != 'eeai' or args.command not in ('deploy', 'build-release')):
+        parser.error('--wait applies to EEAI deployment only')
+    if args.command in ('doctor', 'refresh') and config.get('dashboard') != 'eeai':
+        parser.error('This operator command is available only for EEAI')
+    if args.command == 'refresh' and not args.verify:
+        parser.error('EEAI refresh requires --verify')
+    if args.command != 'refresh' and (args.verify or args.retry):
+        parser.error('--verify and --retry apply to EEAI refresh')
+    read_only = config.get('dashboard') == 'eeai' and args.command in ('doctor', 'status')
+    runtime = Runtime(config, config_path=args.config, read_only=read_only)
+    if args.command == 'deploy': runtime.deploy(args.commit, keep_publication=args.keep_publication, publish_data=args.publish_data, wait=args.wait)
+    elif args.command == 'build-release': runtime.build_release(args.release, args.commit, keep_publication=args.keep_publication, publish_data=args.publish_data, wait=args.wait)
     elif args.command == 'run-dashboard':
         if not args.run_id:
             parser.error('run-dashboard requires --run-id')
@@ -854,6 +1156,13 @@ def main():
         parser.error('ForecastBench is managed by the AIRO runtime')
     elif args.command == 'configure-forecastbench': runtime.configure_forecastbench(args.upload_prefix, json.load(sys.stdin))
     elif args.command == 'check-forecastbench-upload': runtime.check_forecastbench_upload(args.due)
+    elif args.command == 'doctor': raise SystemExit(0 if runtime.doctor() else 1)
+    elif args.command == 'refresh':
+        try:
+            ok = runtime.refresh(args.run_id, args.retry)
+        except ValueError as exc:
+            parser.error(str(exc))
+        raise SystemExit(0 if ok else 1)
     else: getattr(runtime, args.command)()
 
 

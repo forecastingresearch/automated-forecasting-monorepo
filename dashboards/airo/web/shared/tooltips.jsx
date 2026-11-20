@@ -9,7 +9,7 @@ function appTooltip(target, options = {}) {
 
 // React owns content; Popper owns viewport-aware placement. Coordinates are SVG
 // user units, transformed through the actual screen matrix (including resize).
-function PointTooltip({ anchor, box, x, y, children }) {
+function PointTooltip({ anchor, box, x, y, children, maxWidth = 360, interactive = false, motion = false }) {
   const [content] = useState(() => document.createElement("div"));
   const tooltip = React.useRef(null);
   const position = React.useRef(null);
@@ -19,7 +19,10 @@ function PointTooltip({ anchor, box, x, y, children }) {
     const target = p.anchor || (p.box && p.box.current);
     if (!target || !window.tippy) return;
     const instance = appTooltip(target, {
-      content, trigger: "manual",
+      // React owns visibility, including pinned tooltips; Tippy only places them.
+      content, trigger: "manual", hideOnClick: false, onHide: () => false, maxWidth, interactive,
+      moveTransition: motion ? "transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1)" : "",
+      popperOptions: { modifiers: [{ name: "preventOverflow", options: { altAxis: true, padding: 8 } }] },
       getReferenceClientRect: () => {
         const p = position.current;
         if (p.anchor) return p.anchor.getBoundingClientRect();
@@ -31,10 +34,11 @@ function PointTooltip({ anchor, box, x, y, children }) {
           top: screen.y, bottom: screen.y, width: 0, height: 0 };
       },
     });
+    if (motion) instance.popper.dataset.forecastMotion = "";
     tooltip.current = instance;
     instance.show();
     return () => { instance.destroy(); tooltip.current = null; };
-  }, [anchor, box, content]);
+  }, [anchor, box, content, maxWidth, interactive, motion]);
   React.useLayoutEffect(() => {
     if (tooltip.current && tooltip.current.popperInstance) tooltip.current.popperInstance.update();
   });

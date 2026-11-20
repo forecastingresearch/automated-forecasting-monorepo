@@ -13,6 +13,7 @@ class Dashboard:
     assets: tuple = ()         # (source relative to project, destination relative to site)
     block: str = ''            # survey payload used to validate publications
     assembled: str = ''        # optional preassembled frontend relative to project
+    refresh: tuple = ()        # optional data-only command after the release Python
 
 
 AIRO_FILES = ('forecasts.csv', 'rationales.csv', 'debriefs.csv', 'redlines-data.zip')
@@ -25,7 +26,8 @@ DASHBOARDS = {
                       ('-m', 'eeai', 'build', '--publication', '--runs', '{results}', '--site', '{site}'),
                       ('-m', 'eeai', 'run', '--out', '{results}'),
                       ('eeai-data.zip',), ('eeai-data.zip',),
-                      (('eeai/web/img', 'web/img'), ('eeai/web/fonts', 'web/fonts')), block='EEAI'),
+                      (('eeai/web/img', 'web/img'), ('eeai/web/fonts', 'web/fonts')), block='EEAI',
+                      refresh=('-m', 'eeai', 'refresh')),
     'rsi': Dashboard('dashboards/rsi', 'rsi_dashboard/web',
                      ('-m', 'rsi_dashboard', '--publication', '--results', '{results}', '--site', '{site}'),
                      ('-m', 'rsi_dashboard.run', '--condition', 'both', '--out', '{results}'), block='SURVEY'),

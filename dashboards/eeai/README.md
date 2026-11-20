@@ -35,7 +35,7 @@ Run every command from this directory (`dashboards/eeai`).
 
 The survey's questions, in one call per model (`python3 -m eeai prompt` prints
 it), each also asked at nearer dates that FRI added (instrument
-`eeai-survey-v2`; v1 was the survey's own dates only, and its rows continue):
+`eeai-survey-v3`; v3 adds the resolution rules and pins the baseline, v2 added the near dates, and v1 was the survey's own dates only, and its rows continue):
 
 - **AI progress.** The probability of each of the survey's three scenarios for
   AI capability at the end of 2030 (slow, moderate, rapid), the relative
@@ -100,24 +100,25 @@ reads them (`fri_forecaster/keys.py`).
 page links to. The folder is self-contained; any static web server can serve
 it. The panel's number is the median across models of each value. The page
 draws what is asked: points at each date, joined to the latest data by
-straight lines, not quarterly paths. When the record
-(`eeai/data/history.csv`) has a value for a date, the forecast for it stays on
-the chart as a ring tied to the outcome, and "Forecasts against outcomes" lists
-the miss of the unconditional forecast and of each scenario's.
+straight lines. A recorded outcome appears alongside the forecast. The table
+shows the signed error for unconditional forecasts and for the realized AI
+scenario once FRI records its end-of-2030 decision.
 
-Each chart area (the GDP panel; the other indicators) has a small toggle at
-the right of its controls: "Current" (the timeline above) or "History", which
-plots the panel's forecast for the selected date against when it was asked,
-run by run, with the outcome as a level line once the record has it. The two
-page-wide controls are the forecast shown and the horizon (the date the
-numbers are about, and how far the timeline runs). The view is kept in the
-page address (`#split=1&horizon=2030&history=hero,grid`). Using a control
-redraws the page and keeps that control where it was on the screen.
+The headline charts for real GDP growth, labor force participation, and the wealth share of the top 10% share a Current/History toggle. The remaining indicators have their own toggle. Current
+shows forecasts by target year. History tracks one target across forecast
+runs and shows the outcome once available. The horizon and AI progress
+controls apply across both chart areas. A fresh visit opens on the long-term view with 2050 selected and forecasts conditional on AI progress. Near-term covers the five calendar
+years after the latest run. Long-term shows the original 2030 and 2050
+targets. History includes a year selector within the chosen window.
+The page address preserves these choices (for example,
+`#split=1&term=long&horizon=2030&history=hero`).
 
-Hovering a forecast shows the panel's median and each model's own answer, one
-column per series shown. On the small charts, the links under each chart
-("Model forecasts and rationale", "Question and definition") open full-screen:
-the forecasts for every date, each model's rationale, the question as asked.
+Hover a target year to compare the available model and human forecasts on one
+axis. Each tooltip row gives the forecast date. Human forecasts use the
+October 2025–February 2026 fieldwork period reported in the
+[study methods](https://forecastingresearch.org/research/economic-effects-of-ai).
+In the conditional view, hovering a scenario line reveals its elicited 80%
+interval where available. Open any forecast card for all forecast tables, the question definition and rationales.
 
 Motion is small and optional: the modal fades in and out, the control just
 used presses in, and the forecasts (not the record or the axes) fade in when a
@@ -198,19 +199,125 @@ use a made-up placeholder economy.
   estimates it); what that costs is for a smoke run to measure.
 - No scoring yet.
 
+## Economic data and resolution
+
+Run these commands from `dashboards/eeai`. The API client reads `FRED_API_KEY`
+from the environment or the private forecaster keys file, or a raw key from the
+file named by `FRED_API_KEY_FILE`.
+
+```bash
+python3 -m eeai replay unemployment 2024 --as-of 2024-02-01
+python3 -m eeai replay unemployment 2024 --as-of 2024-02-02
+python3 -m eeai replay gdp 2025 --as-of 2025-01-30
+python3 -m eeai refresh
+python3 -m eeai build
+```
+
+Replay inspects the source without storing a decision. The first two examples
+should return pending and 3.7%. GDP should round to 2.39%. Refresh retrieves
+baseline observations at today's vintage, compares the last original chart
+point with the refreshed value, and atomically writes a dated CSV under
+`EEAI_RESULTS/baselines`. Original points before the overlap stay as published
+in the survey. New runs retain the history they used in their call record.
+The page and download share the same baseline snapshot.
+
+Each question selects a dashboard-local resolver and carries its own versioned rule.
+The FRED resolver records the earliest vintage covering every input and each
+subsequent vintage that changes the computed value. GDP and TFP compound five annual
+rates. Labor productivity uses five nonoverlapping Q4 year-over-year rates,
+the quarterly convention that best reproduces the original chart. The three
+labor-market rates use January. Employment shares combine the specified January
+payroll counts and divide by the January labor force. Labor share scales the
+Q1 index to the survey's Q1 2023 percentage. Income uses the chart's income
+year and converts each real observation to 2023 dollars using the same vintage's
+2023 nominal-to-real ratio. Sources with rounding may introduce small differences.
+
+`resolve` runs just the outcome check. Versioned observations and their evidence live in
+`EEAI_RESULTS/resolutions.sqlite`; the build includes them in the page and
+`resolutions.json` in the download. Forecasts made before rules were recorded
+use version 1. When changing a rule, increment its version and retain its
+original definition under the question's `previous_rules["1"]`.
+
+The timeline retains the first-release comparison. The outcomes table also
+shows the latest revised value, its date and its signed error. Use
+`python3 -m eeai replay gdp 2025 --as-of 2026-11-19 --history` to inspect all
+distinct vintages without recording them. The page pins `outcome_snapshot_id`;
+the ZIP includes the same observations. New forecast rows pin the hash of the
+baseline supplied to the model and retain its values in the call record.
+
+Wealth inequality, life satisfaction, AI-assisted hours, AI electricity, and
+the end-of-2030 scenario accept a sourced decision under the survey criteria.
+Place reviewed releases in `EEAI_RESULTS/reviewed/*.json` for the scheduled resolver,
+or use `python3 -m eeai decide FILE.json` to import a decision explicitly. The JSON fields are `question`,
+`horizon` (a year string), `version`, `value`, `period`, `vintage` (ISO source
+publication date), `source`, `reviewer`, and `rationale`. Cite the source table
+or panel decision and explain how it meets the question wording. For the
+scenario, use question `ai_scenario`, horizon `2030`, and a survey scenario ID.
+A correction also takes `correction_reason` and the prior stored record as
+`previous` (the download row without its question and horizon keys). Concurrent
+changes reject a stale correction. To correct a revised release, supply that
+specific entry from `revisions` as `previous`. Use distinct `revision_id` values
+for separate reviewed releases on the same date. Corrections use the explicit
+`decide` command and retain the prior evidence.
+
+The schedule in `packages/ops/jobs.json` requests a daily 15:15 UTC economic
+refresh and verified site rebuild. It is the automatic ingestion and
+resolution trigger for EEAI. Each question's rule controls evidence selection
+within that job. The forecast runner reads the last completed local baseline
+and makes no FRED requests. The refresh uses existing forecast runs and
+makes no model calls. If an upstream resolution check fails, the dated
+baseline stays at its last completed version. Frozen decisions are retained
+as evidence. Production activation follows the shared deployment
+guide and requires FRED access from the scheduled runtime. See the
+[EEAI operator pilot](../../packages/ops/DASHBOARDS.md#eeai-operator-pilot)
+for scheduler diagnostics, verified refresh and recovery.
+
+New builds report the as-of date of the dated FRED file used for the
+baseline. This is the source vintage cutoff for the refresh. The survey seed
+has no as-of date. The page data and the ZIP's `baseline.json` describe the
+same `history.csv` bytes. A frontend-only deploy keeps the previously
+published data block and ZIP, so a legacy publication without baseline
+provenance displays an unavailable date. The download card links to the
+live site's `release.json`.
+
 ## Open
 
-- **Schedule and deployment.** EEAI supports the shared production runtime. The [deployment guide](../../packages/ops/DASHBOARDS.md) covers migration of its password-protected site and scheduling. Its cadence is configured in `packages/ops/jobs.json`; no EEAI run is scheduled yet.
-- **Fresh data.** The history ends where the survey's charts did (early 2025),
-  and nothing refreshes it. A forecast shows as resolved only when the record
-  gets a value for its date, so the first dates (the beginning of 2027) need a
-  refresh from FRED and, for life satisfaction, AI-assisted work hours, AI
-  electricity and the job shares, by hand. Until a scenario is known (the end
-  of 2030) a miss against a scenario's forecast shows which scenario the
-  economy is tracking, not that the forecast was wrong.
 - **Beyond the survey.** The design mock-ups also show a quarterly GDP path, 12
   sector forecasts, AI adoption and macro demand scenarios, and attributed
   forecast updates. None is in the survey; each would be a new instrument
   version, and a new series.
 - The AI electricity question points to an embedded document the survey's
   respondents could open and the models cannot.
+
+## Human survey forecasts
+
+Economic charts show two survey medians at each horizon and scenario that
+humans answered. The bold filled dot shows superforecasters with their
+survey weights. The hollow ring shows the full human panel, including
+superforecasters, with one vote per eligible respondent. Both use the lower
+median at an exact half-weight tie. All marks share the target year’s x-coordinate. Hovering anywhere along that
+year shows the model and human estimates together, including respondent counts. The run-history chart gives the original survey
+its own labeled position. Forecast details include counts and elicited ranges.
+The AI progress probability table uses the same two panels and their respective
+weighted and equal-weight means.
+
+The build reads `eeai/data/human_forecasts.csv`. The page and the download
+use the same rounded values and respondent counts. Git retains the history
+of this summary. Building a release needs no warehouse access or runtime
+survey import.
+
+To refresh the summary, run the two queries under `eeai/warehouse/` against
+the EEAI warehouse. Save their results as `economic.csv` and `probabilities.csv`
+in a private directory. The queries return weights grouped by response value
+and a distinct respondent count per cell. With bq, set the project, use
+standard SQL, and pass `--format=csv --max_rows=1000000`. Python checks the
+reported extract length, computes the weighted statistics, and rounds values
+to the precision shown on the dashboard.
+
+```bash
+python3 -m eeai summarize-human "$EXTRACT_DIR" --extracted-on "$EXTRACT_DATE"
+```
+
+Review the changed summary values, cohort sizes, and question coverage before
+committing the CSV. The dated private runtime snapshots used by earlier releases
+are no longer required by the build.

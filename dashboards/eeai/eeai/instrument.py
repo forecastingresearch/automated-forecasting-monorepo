@@ -85,8 +85,13 @@ def build_prompt(survey, history, today):
         if q.get("preamble"):
             out += [q["preamble"], ""]
         out += [q["stem"]] + [f"- {h['id']}: {h['text']}" for h in S.horizons(q, today)]
-        out += [f"Unit: {q['unit']}. {_asks(survey, q)}", "", q["details"], "",
-                "Historical data (the survey's chart):", _history_lines(history.get(q["history"])), ""]
+        out += [f"Unit: {q['unit']}. {_asks(survey, q)}", "", q["details"], ""]
+        if survey["instrument"] in ("eeai-survey-v1", "eeai-survey-v2"):
+            history_label = "Historical data (the survey's chart):"
+        else:
+            out += [S.resolution_text(q["resolution"]), ""]
+            history_label = "Historical data:"
+        out += [history_label, _history_lines(history.get(q["history"])), ""]
     out += ["=====", "", DELIVERY.format(n=len(qs), n_values=S.n_values(survey, today))]
     return "\n".join(out), [q["id"] for q in qs]
 

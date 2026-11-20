@@ -44,7 +44,9 @@ class TestDefinition(unittest.TestCase):
 
     def test_the_scenarios_are_copied_in_and_the_wording_is_filled(self):
         survey = json.loads((config.QUESTIONS).read_text(encoding="utf-8"))
-        self.assertEqual(self.spec["scenarios"], survey["scenarios"])
+        # The wording, verbatim; the survey's resolution rule for the scenario question is not the model's.
+        wording = {k: v for k, v in survey["scenarios"].items() if k != "resolution"}
+        self.assertEqual(self.spec["scenarios"], wording)
         for c in M.components(self.spec) + M.baselines(self.spec):
             self.assertNotIn("{industry}", c["text"], c["id"])
             self.assertNotIn("{occupation}", c["text"], c["id"])
