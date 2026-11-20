@@ -39,6 +39,10 @@ function openDetail(o, opener) {
     ["Forecasts", body => forecastsView(o, ds, body)],
     ["Scenarios", body => scenariosView(body)],
   ];
+  // The chart shows every scenario at once (and the unconditional forecast, dashed), as the survey's dialog does.
+  // The scenario the controls select keeps its intervals in view; hovering another line shows that one's instead.
+  const chartSeries = () => [...SCEN.map(sc => ({ id: sc.id, label: sc.label, color: sc.color, cells: cellsOf(ds.system, sc.id, o.id), band90: true })),
+    ...(canUncond(ds.system) ? [{ id: "unconditional", label: "Unconditional", color: UNCOND.color, cells: cellsOf(ds.system, "unconditional", o.id), band90: true, dash: true }] : [])];
   forecastDialog.show(opener, "Economy model", o.label, views);
   const dialog = document.getElementById("question-dialog");
   const box = h("div", { class: "chart" }), ctl = h("div", { class: "controls dialog-controls" });
@@ -46,14 +50,13 @@ function openDetail(o, opener) {
   dialog.querySelector("#question-views").before(figure);
   let fromYear;
   function legendFor() {
-    const sc = scenarioOf(ds.scen);
-    return h("div", { class: "legend" }, h("span", { style: `color: ${sc.color}` }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, `${forecasterName(ds.system)} · ${sc.label}`)),
-      h("span", {}, h("i", { class: "sw band" }), "50% and 90% intervals"));
+    return h("div", { class: "legend" }, h("span", { style: "color: var(--ink-soft)" }, `${forecasterName(ds.system)}:`),
+      ...chartSeries().map(sr => h("span", { style: `color: ${sr.color}` }, h("i", { class: "sw" + (sr.dash ? " dash" : "") }),
+        h("span", { style: sr.id === ds.scen ? "color: var(--ink); font-weight: 600" : "color: var(--ink-soft)" }, sr.label))),
+      h("span", {}, "Hover a line for its 50% and 90% intervals; the selected scenario's are shown."));
   }
   function draw() {
-    const sc = scenarioOf(ds.scen);
-    fanChart(box, o, D.years, [{ id: sc.id, label: sc.label, color: sc.color, cells: cellsOf(ds.system, ds.scen, o.id), band90: true }],
-      { size: "dialog", year: ds.year, fromYear, breakdown: breakdownFor(o.id, ds.system) });
+    fanChart(box, o, D.years, chartSeries(), { size: "dialog", year: ds.year, fromYear, selected: ds.scen, breakdown: breakdownFor(o.id, ds.system) });
     fromYear = undefined;
   }
   const seg = (label, options, key) => h("div", { class: "seg", role: "group", "aria-label": label }, h("span", { class: "lab" }, label),

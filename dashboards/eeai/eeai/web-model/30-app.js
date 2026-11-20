@@ -26,10 +26,14 @@ if (!terms.near.length) terms.near = future.filter(y => +y <= 2030);
 const said = new URLSearchParams(location.hash.slice(1));
 const savedTerm = said.get("term") === "near" ? "near" : "long";
 const state = { split: said.get("split") !== "0", system: "ensemble", term: savedTerm,
-  year: terms[savedTerm].includes(said.get("year")) ? said.get("year") : terms[savedTerm].at(-1) };
+  year: terms[savedTerm].includes(said.get("year")) ? said.get("year") : terms[savedTerm].at(-1),
+  // the ranked sections' measures, and whether each shows its chart or its table
+  sector: said.get("sector") || "sector_growth", jobs: said.get("jobs") || "occupation_employment_change",
+  sectorView: said.get("sectorView") === "table" ? "table" : "chart", jobsView: said.get("jobsView") === "table" ? "table" : "chart" };
 const historyOf = new Set((said.get("history") || "").split(",").filter(a => a === "hero" || a === "grid"));
 const remember = () => { try { history.replaceState(null, "", `#split=${state.split ? 1 : 0}&term=${state.term}&year=${state.year}`
-  + (historyOf.size ? `&history=${[...historyOf].join(",")}` : "")); } catch (e) {} };
+  + (historyOf.size ? `&history=${[...historyOf].join(",")}` : "")
+  + ["sector", "jobs", "sectorView", "jobsView"].map(k => `&${k}=${state[k]}`).join("")); } catch (e) {} };
 const root = document.getElementById("root");
 const charts = [];
 const lastOfTerm = () => +terms[state.term].at(-1);
@@ -108,22 +112,31 @@ function legend() {
   const items = state.split || !hasUncond()
     ? SCEN.map(sc => h("span", { style: `color: ${sc.color}` }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, sc.label)))
     : [h("span", { style: "color: var(--uncond)" }, h("i", { class: "sw" }), h("span", { style: "color: var(--ink-soft)" }, "Unconditional (ensemble median)"))];
-  items.push(h("span", {}, h("i", { class: "sw band" }), state.split || !hasUncond() ? "50% intervals" : "50% and 90% intervals"));
+  items.push(state.split || !hasUncond() ? h("span", {}, "Hover a line for its 50% interval.")
+    : h("span", {}, h("i", { class: "sw band" }), "50% and 90% intervals"));
   return h("div", { class: "legend" }, items);
 }
 const interval = (o, c) => c && c[MED] != null ? `${fmt(o, c[1], true)} to ${fmt(o, c[3], true)}` : "–";
+
+const downloadButton = () => D.download && h("a", { class: "dl", href: D.download, download: D.download,
+  title: "The quantiles, probabilities, rationales, simulation summaries and run file" }, "⤓ Download data");
 
 function header() {
   return h("header", {},
     h("div", { class: "top" },
       h("a", { href: "https://forecastingresearch.org", title: "Forecasting Research Institute" }, h("img", { class: "brand-logo", src: "web/img/fri-logo.svg", alt: "Forecasting Research Institute", width: 231, height: 37 })),
-      D.download && h("a", { class: "dl", href: D.download, download: D.download, title: "The quantiles, probabilities, rationales, simulation summaries and run file" }, "⤓ Download data")),
+      downloadButton()),
     h("nav", { class: "pages", "aria-label": "EEAI pages" }, h("a", { href: "index.html" }, "Survey"), h("a", { href: "model.html", "aria-current": "page" }, "Economy model")),
     h("h1", {}, "EEAI economy model (v0)"),
     h("p", { class: "lede" }, "A panel of frontier AI models forecasts the parts of an accounting model of the US economy: output, prices, productivity, hours and capital in 22 industries; jobs, unemployment and pay in 22 occupation groups. Every outcome below is computed from those parts, not asked directly, for each of three scenarios of AI progress."),
     L && h("p", { class: "meta" }, `Latest run ${L.date} · ${L.models.join(", ")} · ${L.worlds.toLocaleString("en-US")} simulated worlds per scenario and model`),
     D.synthetic && h("div", { class: "banner", role: "status" }, h("b", {}, "Placeholder data. "), "These numbers are made up to show the layout. No model has been asked yet."));
 }
+
+// The survey's dates: "Nov 20, 2026", in small type under a value or beside a caption.
+const formatRunDate = date => date && new Date(date + "T00:00:00Z").toLocaleDateString("en-US",
+  { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+const forecastDate = date => date && h("small", { class: "forecast-date" }, date);
 
 const scenarioSummary = id => (D.scenarios.find(sc => sc.id === id) || {}).summary;
 
@@ -157,23 +170,22 @@ function probabilities() {
     return { onpointerenter: show, onpointerleave: leave, onfocus: show, onblur: leave, onclick: show,
       onkeydown: ev => { if (ev.key === "Escape") hide(); } };
   }
-  const label = state.system === "ensemble" ? "Model ensemble (mean)" : state.system;
+  const label = "Model ensemble", date = formatRunDate(L.date);
   return h("section", { class: "card ai-progress" }, h("h2", {}, "AI progress by 2030"),
     h("p", { class: "sub" }, "How likely each forecaster thinks each scenario is. The unconditional forecast mixes the scenarios by these weights."),
-    e && h("div", { class: "scenario-bars" }, h("figure", {}, h("figcaption", {}, h("b", {}, label)),
+    e && h("div", { class: "scenario-bars" }, h("figure", {}, h("figcaption", {}, h("b", {}, label), forecastDate(date)),
       h("div", { class: "bar", role: "group", "aria-label": `${label}. ` + SCEN.map(sc => `${sc.label} ${pct(e[sc.id])}`).join(", ") },
         SCEN.map(sc => h("button", { type: "button", "aria-label": `${sc.label} ${pct(e[sc.id])}`,
           style: `flex: ${e[sc.id]} 0 0; background: ${sc.color}`, ...events(sc, e[sc.id], label) }))))),
     h("div", { class: "scroll", style: "margin-top: 14px" }, h("table", { class: "tv" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Probability"), h("th", {}, "Ensemble (mean)"), L.models.map(m => h("th", {}, m)))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Probability"), h("th", {}, "Model panel"), L.models.map(m => h("th", {}, m)))),
       h("tbody", {}, SCEN.map(sc => h("tr", {},
         h("th", { scope: "row" }, h("button", { type: "button", class: "scenario-label", ...events(sc) }, sc.label)),
-        ["ensemble", ...L.models].map(m => h("td", { class: "mono" }, pct((P[m] || {})[sc.id])))))))),
+        ["ensemble", ...L.models].map(m => h("td", { class: "mono" }, pct((P[m] || {})[sc.id]), forecastDate(date)))))))),
     tip);
 }
 
 // The unit line under a card's title: the unit, the window a growth rate covers, the year.
-const unitLine = o => o.unit + (o.kind === "growth" && +state.year > 2030 ? `, average since ${D.years[yi() - 1]}` : "") + ` · ${state.year}`;
 const forecastTitle = text => h("button", { type: "button", class: "forecast-trigger" }, text);
 
 // A card opens its detail dialog (the survey's shared forecastDialog) from its title or anywhere on it.
@@ -181,12 +193,23 @@ function forecastCard(o, card) {
   return forecastDialog.bind(card, card.querySelector(".forecast-trigger"), opener => openDetail(o, opener));
 }
 
+// The survey's tile: a category, the title, the values, and what they measure ("per year, 2045–2050", "of the labor force in 2050").
+const CATEGORY = { gdp_growth: "Economic Activity", lp_growth: "Economic Activity", tfp_growth: "Economic Activity",
+  unemployment_rate: "Labor Markets", lfpr: "Labor Markets", epop: "Labor Markets", employment: "Labor Markets",
+  labor_share: "Economic Inequality", ratio_90_10: "Economic Inequality",
+  real_pay_growth: "Income and Well-Being", real_median_earnings: "Income and Well-Being", inflation_pce: "Prices" };
+const unitWord = o => o.unit === "% per year" ? "per year" : o.unit.startsWith("%") ? o.unit.slice(1).trim() : o.unit;
+// The window a value covers: a growth rate runs from the date before; a level is the year's average.
+const period = o => o.kind === "growth" ? `${D.years[yi() - 1]}–${state.year}` : state.year;
+const valueLine = o => o.kind === "growth" ? `${unitWord(o)}, ${period(o)}` : [unitWord(o), `in ${state.year}`].filter(Boolean).join(" ");
+
 function tile(o) {
   const get = sc => cells(o.id, sc), i = yi();
   const shown = state.split || !hasUncond()
-    ? h("div", { class: "num chips mono" }, SCEN.map(sc => h("span", { title: sc.label }, h("i", { class: "sw dot", style: `color: ${sc.color}` }), h("b", {}, fmt(o, (get(sc.id)[i] || [])[MED])))))
-    : h("div", { class: "num mono" }, h("b", {}, fmt(o, (get("unconditional")[i] || [])[MED])), ` · 50%: ${interval(o, get("unconditional")[i])}`);
-  return forecastCard(o, h("article", { class: "tile forecast-card" }, h("h3", {}, forecastTitle(o.label)), h("div", { class: "unit" }, unitLine(o)),
+    ? h("div", { class: "num chips mono" }, SCEN.map(sc => h("span", { title: sc.label }, h("i", { class: "sw dot", style: `color: ${sc.color}` }), h("b", {}, fmt(o, (get(sc.id)[i] || [])[MED])))),
+        h("span", {}, valueLine(o)))
+    : h("div", { class: "num mono" }, h("b", {}, fmt(o, (get("unconditional")[i] || [])[MED])), ` ${valueLine(o)} · 50%: ${interval(o, get("unconditional")[i])}`);
+  return forecastCard(o, h("article", { class: "tile forecast-card" }, h("div", { class: "cat" }, CATEGORY[o.id]), h("h3", {}, forecastTitle(o.label)),
     shown, chartBox(o, "mini", "grid")));
 }
 
@@ -197,8 +220,8 @@ function headlineCard(o) {
   return forecastCard(o, h("article", { class: "tile headline forecast-card" }, h("h3", {}, forecastTitle(o.label)),
     h("p", { class: "sub" }, MEASURES[o.id]),
     !state.split && hasUncond() && h("div", { class: "headline-values" },
-      h("small", {}, `${forecasterName(state.system)} median`), h("b", { class: "mono" }, fmt(o, v))),
-    h("small", {}, unitLine(o)),
+      h("small", {}, "Model panel median"), h("b", { class: "mono" }, fmt(o, v))),
+    h("small", {}, o.kind === "growth" ? period(o) : `Annual average, ${state.year}`),
     chartBox(o, "headline", "hero")));
 }
 
@@ -224,15 +247,43 @@ function others() {
       "Compare an interval with others over the same window. Read the medians first."));
 }
 
-function decomposition() {
-  const i = yi(), o = { unit: "index", decimals: 3 };
+// The ranked charts' measures: a short name for the toggle and what the axis shows.
+// The hollow ring (2025) appears where the measure has a 2025 value.
+const RANKED = {
+  sector: { names: () => D.industries, metas: () => D.sector, kind: "Industry", options: [
+    ["sector_growth", "Growth", "Real value added growth, % per year"],
+    ["sector_contribution", "Contribution to GDP", "Contribution to real GDP growth, percentage points: the industry's growth times its average share of nominal GDP"],
+    ["sector_share", "Share of GDP", "Share of nominal GDP, %"]] },
+  jobs: { names: () => D.occupations, metas: () => D.occupation, kind: "Occupation group", options: [
+    ["occupation_employment_change", "Employment change", "Change in employment since 2025, % (each industry's employment times its occupation mix)"],
+    ["occupation_unemployment", "Unemployment", "Unemployment rate, %"],
+    ["occupation_time", "Human time with AI", "Human time a unit of the group's work takes, relative to doing it without AI (below 1: AI saves time)"],
+    ["occupation_premium", "Pay premium", "Median earnings relative to the overall median"]] },
+};
+// A ranked section: the measure and Chart / Table toggles, a legend, then the chart or the full table.
+function ranked(where, title, sub) {
+  const R = RANKED[where];
+  if (!R.options.some(o => o[0] === state[where])) state[where] = R.options[0][0];      // (an unknown measure in the address)
+  const metric = state[where], option = R.options.find(o => o[0] === metric);
+  const m = { ...R.metas().find(x => x.id === metric), kind: "level" };
   const sc = state.split || !hasUncond() ? SCEN : [UNCOND];
-  return h("section", { class: "card" }, h("h2", {}, "Does productivity reach pay?"),
-    h("p", { class: "sub" }, "Real pay per hour relative to 2025 is exactly labor productivity × the labor share (relative to 2025) × the price gap (the prices of what the economy produces against the prices households pay). Medians in " + state.year + "; each column's product holds world by world, so the medians need not multiply exactly."),
-    h("div", { class: "scroll", style: "margin-top: 12px" }, h("table", { class: "tv" },
-      h("thead", {}, h("tr", {}, h("th", {}, state.year), sc.map(c => h("th", {}, c.label)))),
-      h("tbody", {}, D.decomposition.map((d, k) => h("tr", {}, h("td", {}, k ? "× " + d.label : h("b", {}, d.label)),
-        sc.map(c => h("td", { class: "mono" }, fmt(o, (cells(d.id, c.id)[i] || [])[MED])))))))));
+  const key = sc.length > 1 ? "moderate" : "unconditional", i = yi();
+  const get = (id, k) => (cells(metric, id)[k] || [])[i];
+  const base = k => metric.endsWith("_change") ? null : ((cells(metric, key)[k] || [])[0] || [])[MED] ?? null;
+  const table = state[where + "View"] === "table";
+  const box = h("div", { class: "rank" });
+  if (!table) charts.push(() => rankChart(box, m, R.names(), sc.map(c => ({ id: c.id, label: c.label, color: c.color })), get, base, key, state.year));
+  const toggle = (k, opts) => h("div", { class: k === where ? "mini measure" : "mini", role: "group", "aria-label": k === where ? "Measure" : "View" }, opts.map(([v, text]) =>
+    h("button", { type: "button", "aria-pressed": String(state[k] === v), "data-k": `${where}|${k}|${v}`, onclick: ev => act(ev, () => { state[k] = v; }) }, text)));
+  return h("section", { class: "card" }, h("h2", {}, title), h("p", { class: "sub" }, sub),
+    h("div", { class: "controls" }, toggle(where, R.options.map(o => [o[0], o[1]])), toggle(where + "View", [["chart", "Chart"], ["table", "Table"]])),
+    table ? vectorTable(R.kind, R.names(), R.metas(), metric)
+      : [h("div", { class: "legend" }, ...(sc.length > 1 ? SCEN.map(c => h("span", {}, h("i", { class: "sw dot", style: `color: ${c.color}` }), c.label))
+          : [h("span", {}, h("i", { class: "sw dot", style: `color: ${UNCOND.color}` }), "Unconditional (ensemble median)"), h("span", {}, h("i", { class: "sw band" }), "50% interval")]),
+          metric.endsWith("_change") ? null : h("span", {}, h("i", { class: "sw ring" }), "2025"),
+          h("span", {}, "Hover a row for its numbers.")),
+        h("p", { class: "note" }, `${option[2]}, ${state.year}${m.unit === "% per year" && +state.year > 2030 ? ` (average since ${D.years[yi() - 1]})` : ""}. Sorted by the ${sc.length > 1 ? "moderate-progress" : "unconditional"} median.`),
+        box]);
 }
 
 function vectorTable(kind, names, metas, sortBy) {
@@ -255,15 +306,13 @@ function vectorTable(kind, names, metas, sortBy) {
 }
 
 function sectors() {
-  return h("section", { class: "card" }, h("h2", {}, "Growth by sector"),
-    h("p", { class: "sub" }, `Each industry's real value added growth in ${state.year}, its contribution to GDP growth (growth × its average share of nominal GDP), and its share. Sorted by contribution${state.split ? " under moderate progress" : ""}; hover a value for its 50% interval.`),
-    vectorTable("Industry", D.industries, D.sector, "sector_contribution"));
+  return ranked("sector", "Growth by sector", "Which of the 22 industries grow, and how much each adds to GDP growth. "
+    + (state.split || !hasUncond() ? "The longer a row's line, the more that industry's future depends on how fast AI improves." : "Switch to Conditional on AI progress to see how much each industry depends on the scenario."));
 }
 
 function occupations() {
-  return h("section", { class: "card" }, h("h2", {}, "Jobs by occupation"),
-    h("p", { class: "sub" }, `Employment in ${state.year} by occupation group (each industry's employment times its occupation mix), the group's unemployment rate, its pay premium over the overall median, and the human time its work takes relative to doing it without AI (below 1: AI saves time).`),
-    vectorTable("Occupation group", D.occupations, D.occupation, "occupation_employment"));
+  return ranked("jobs", "Jobs by occupation", "How employment, unemployment, the human time work takes and pay shift across the 22 occupation groups. "
+    + (state.split || !hasUncond() ? "The longer a row's line, the more that group depends on how fast AI improves." : "Switch to Conditional on AI progress to see how much each group depends on the scenario."));
 }
 
 function absorbed() {
@@ -308,10 +357,14 @@ function render(previous) {
   root.replaceChildren(...[
     header(),
     !L && h("section", { class: "card" }, h("h2", {}, "No forecasts yet"), h("p", { class: "empty" }, "The panel has not been asked the economy model. The components are defined; the first run will fill this page.")),
-    L && headline(), L && others(), L && probabilities(), L && decomposition(), L && sectors(), L && occupations(), L && absorbed(), L && diagnostics(),
-    h("footer", {},
-      h("p", {}, `Instrument ${D.instrument}. Scenario definitions are from FRI's Economic Effects of AI survey. Components resolve against BEA and BLS series; the automation layer has no official source.`),
-      h("p", {}, "The ensemble mixes the models' simulated worlds with equal weight. Forecasts are not yet scored against outcomes."))].filter(Boolean));
+    L && headline(), L && others(), L && probabilities(), L && sectors(), L && occupations(), L && absorbed(), L && diagnostics(),
+    // The survey's download card.
+    D.download && h("section", { class: "card" }, h("div", { class: "head" },
+      h("div", {}, h("h2", {}, "Download data"),
+        h("p", { class: "sub", style: "color: var(--ink-soft); margin: 4px 0 0; max-width: 640px" }, "Every quantile every model gave for every component, the scenario probabilities, the rationales, the simulation summaries and the run file.")),
+      downloadButton())),
+    h("footer", {}, `Instrument ${D.instrument}. Scenario definitions are from FRI's Economic Effects of AI survey. Components resolve against BEA and BLS series; the automation layer has no official source. `,
+      "The ensemble mixes the models' simulated worlds with equal weight. Forecasts are not yet scored against outcomes.")].filter(Boolean));
   for (const draw of charts) draw(previous);
   root.style.minHeight = "";
 }

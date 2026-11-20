@@ -30,7 +30,9 @@ DECOMPOSITION = [("real_pay_index", "Real pay per hour"), ("real_pay_lp", "Labor
                  ("real_pay_labor_share", "Labor share, relative to 2025"), ("real_pay_price_gap", "Price gap (GDP prices / consumer prices)")]
 SECTOR = [("sector_growth", "Real value added growth", "% per year", 1), ("sector_contribution", "Contribution to GDP growth", "pp", 2),
           ("sector_share", "Share of nominal GDP", "%", 1)]
-OCCUPATION = [("occupation_employment", "Employment", "millions", 2), ("occupation_unemployment", "Unemployment rate", "%", 1),
+OCCUPATION = [("occupation_employment", "Employment", "millions", 2),
+              ("occupation_employment_change", "Employment change since 2025", "%", 1),
+              ("occupation_unemployment", "Unemployment rate", "%", 1),
               ("occupation_premium", "Pay premium (median earnings / overall median)", "ratio", 2),
               ("occupation_time", "Human time per unit of work, relative to doing it alone", "ratio", 2)]
 NAME = "eeai-model-data.zip"

@@ -139,6 +139,7 @@ def compute(base, fut, gaps):
         "sector_contribution": sector_contribution * 100,
         "sector_share": w * 100,
         "occupation_employment": E_o,
+        "occupation_employment_change": (E_o / E_o[:, :1] - 1) * 100,   # percent since 2025, world by world
         "occupation_unemployment": u * 100,
         "occupation_premium": omega / p50[..., None],
         "occupation_time": m,
