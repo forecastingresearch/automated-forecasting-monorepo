@@ -93,9 +93,23 @@ def page(blob):
     return kit.render(config.MODEL_PAGE_DIR, {"EEAI_MODEL": blob})
 
 
-def write(site_dir, sims_dir=None, runs_dir=None):
-    """Write model.html (and, with a summary, its detail-card data and its download) into the site folder. -> the blob."""
+def check_publishable(sims):
+    """Raise ValueError unless every summary is real (not synthetic) and complete (no model skipped).
+    A publication shows the latest and charts every run, so each must pass."""
+    for run_id, s in sims:
+        if s.get("synthetic"):
+            raise ValueError(f"EEAI publication: the economy model summary {run_id} is synthetic")
+        if s.get("skipped") or not s.get("systems"):
+            raise ValueError(f"EEAI publication: the economy model summary {run_id} is incomplete "
+                             f"(skipped: {', '.join(s.get('skipped') or {}) or 'every model'})")
+
+
+def write(site_dir, sims_dir=None, runs_dir=None, publication=False):
+    """Write model.html (and, with a summary, its detail-card data and its download) into the site folder. -> the blob.
+    publication: refuse synthetic or incomplete summaries (check_publishable)."""
     sims = load_sims(sims_dir)
+    if publication:
+        check_publishable(sims)
     blob = build(sims)
     site_dir = Path(site_dir)
     site_dir.mkdir(parents=True, exist_ok=True)

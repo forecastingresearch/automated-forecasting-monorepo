@@ -29,13 +29,17 @@ const cellAt = (id, ds, k, year = ds.year) => { const c = seriesCells(id, ds), i
 const metaOf = id => SERIES[id] || D.headline.find(o => o.id === id) || { label: id, unit: "", decimals: 2 };
 const symbolOf = m => m.sym ? h("span", { class: "sym" }, m.sym) : null;
 
+// Each opening of the dialog: a load started by one opening never renders into another's.
+let detailOpening = 0;
+
 function openDetail(o, opener) {
+  const opening = ++detailOpening;
   const recipe = RECIPES[o.id] || {};
   const canUncond = system => !!(L.summaries[system] || {}).unconditional;
   const ds = { system: state.system, year: state.year, scen: !state.split && canUncond(state.system) ? "unconditional" : "moderate" };
   const views = [
-    ["How it is computed", body => withInputs(body, "how", () => howView(o, recipe, ds, body))],
-    ["Inputs", body => withInputs(body, "inputs", () => inputsView(recipe, ds, body))],
+    ["How it is computed", body => withInputs(body, "how", opening, () => howView(o, recipe, ds, body))],
+    ["Inputs", body => withInputs(body, "inputs", opening, () => inputsView(recipe, ds, body))],
     ["Forecasts", body => forecastsView(o, ds, body)],
     ["Scenarios", body => scenariosView(body)],
   ];
@@ -86,13 +90,14 @@ function openDetail(o, opener) {
 }
 
 // Run a view that needs the inputs file: at once if it is loaded, else after
-// it loads (unless the reader has moved to another view meanwhile).
-function withInputs(body, view, render) {
+// it loads -- unless the reader has meanwhile moved to another view or closed
+// the dialog and opened another card (the dialog's content element is shared).
+function withInputs(body, view, opening, render) {
   body.dataset.view = view;
   if (INPUTS) return render();
   body.append(h("p", { class: "empty" }, "Loading the inputs…"));
   loadInputs().then(data => {
-    if (body.dataset.view !== view || !body.isConnected) return;
+    if (opening !== detailOpening || body.dataset.view !== view || !body.isConnected) return;
     body.replaceChildren();
     if (data.error) body.append(h("p", { class: "warn" }, `The inputs (${D.inputs || "model-inputs.json"}) could not be loaded: ${data.error}. `
       + "Browsers do not load them from a page opened as a file; serve the site folder instead (python3 -m http.server)."));

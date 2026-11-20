@@ -14,6 +14,7 @@ class Dashboard:
     block: str = ''            # survey payload used to validate publications
     assembled: str = ''        # optional preassembled frontend relative to project
     refresh: tuple = ()        # optional data-only command after the release Python
+    pages: tuple = ()          # further pages: (frontend dir relative to project, file in the site, its data block)
 
 
 AIRO_FILES = ('forecasts.csv', 'rationales.csv', 'debriefs.csv', 'redlines-data.zip')
@@ -25,9 +26,11 @@ DASHBOARDS = {
     'eeai': Dashboard('dashboards/eeai', 'eeai/web',
                       ('-m', 'eeai', 'build', '--publication', '--runs', '{results}', '--site', '{site}'),
                       ('-m', 'eeai', 'run', '--out', '{results}'),
-                      ('eeai-data.zip',), ('eeai-data.zip',),
+                      # (the economy model's files are hashed when a publication has them; they are not required yet)
+                      ('eeai-data.zip', 'eeai-model-data.zip', 'model-inputs.json'), ('eeai-data.zip',),
                       (('eeai/web/img', 'web/img'), ('eeai/web/fonts', 'web/fonts')), block='EEAI',
-                      refresh=('-m', 'eeai', 'refresh')),
+                      refresh=('-m', 'eeai', 'refresh'),
+                      pages=(('eeai/web-model', 'model.html', 'EEAI_MODEL'),)),
     'rsi': Dashboard('dashboards/rsi', 'rsi_dashboard/web',
                      ('-m', 'rsi_dashboard', '--publication', '--results', '{results}', '--site', '{site}'),
                      ('-m', 'rsi_dashboard.run', '--condition', 'both', '--out', '{results}'), block='SURVEY'),

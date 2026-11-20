@@ -34,12 +34,25 @@ def verify(site, required=()):
         raise RuntimeError('Publication must not contain symlinks')
 
 
-def snapshot(site, files=()):
-    """What the site publishes, hashed: each data block in the page and each of
-    `files` that is there. -> {"blocks": {...}, "files": {...}, "sha256": of both}."""
+def snapshot(site, files=(), pages=()):
+    """What the site publishes, hashed: each data block in the page, each data
+    block holding data in each of `pages` (further pages beside index.html, as
+    "model.html") that is there, and each of `files` that is there.
+    -> {"blocks": {...}, "files": {...}, "sha256": of both}.
+
+    A further page's block is keyed "page:NAME_DATA"; an empty one (null: the
+    page published before it has any data) is left out, so adding a page that
+    has no data yet leaves the hash as it was."""
     site = Path(site)
     blocks = {name: hashlib.sha256(block).hexdigest()
               for name, block in page.blocks((site / 'index.html').read_bytes()).items()}
+    for extra in pages:
+        path = site / extra
+        if path.exists():
+            html = path.read_bytes()
+            for name, block in page.blocks(html).items():
+                if page.payload(html, name.removesuffix('_DATA')) is not None:
+                    blocks[f'{extra}:{name}'] = hashlib.sha256(block).hexdigest()
     hashed = {}
     for name in files:
         path = site / name

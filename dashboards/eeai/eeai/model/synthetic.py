@@ -145,16 +145,22 @@ def _quantiles(c, median, year):
     t = c["transform"]
     sd = {"log": 0.02 + 0.015 * math.sqrt(yrs), "logit": 0.05 + 0.04 * math.sqrt(yrs), "none": 0.3 + 0.2 * math.sqrt(yrs)}[t]
     if t == "log":
+        median = max(median, 1e-6)                       # (a zero in the record: no observations)
         return [round(median * math.exp(z * sd), 6) for z in Z]
     if t == "logit":
+        median = min(max(median, 1e-4), 1 - 1e-4)        # (a share of 0 or 1 in the record, as an empty CPS cell)
         x = math.log(median / (1 - median))
         return [round(1 / (1 + math.exp(-(x + z * sd))), 7) for z in Z]
     return [round(median + z * sd, 4) for z in Z]
 
 
 def answer(spec, record, model, keys, today):
-    """Cells for `keys` (component and rationale ids) and the final answer."""
+    """Cells for `keys` (component and rationale ids) and the final answer.
+    A baseline the record lacks (the real record offers no automation
+    baselines) comes from the placeholder economy, so made-up answers work with
+    the real data/model/baselines.csv too."""
     rng = random.Random(int(hashlib.sha256(f"{model}|{today}".encode()).hexdigest()[:12], 16))
+    record = {**placeholder_record(spec), **record}
     every = M.by_id(spec)
     cells = {}
     for k in keys:

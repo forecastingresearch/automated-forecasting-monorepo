@@ -220,7 +220,9 @@ def main(args):
         export.bundle(out.with_name(export.NAME), survey, runs, args.runs, outcomes, history_bytes, human=human, vintage=vintage, baseline=baseline)
     # The economy model's page beside the survey's (eeai/model/build.py), linked from both headers.
     from .model import build as model_build
-    model = model_build.write(out.parent, getattr(args, "model_sims", None), getattr(args, "model_runs", None))
+    # (under --publication, a synthetic or incomplete model summary fails the build, as the survey's runs do)
+    model = model_build.write(out.parent, getattr(args, "model_sims", None), getattr(args, "model_runs", None),
+                              publication=getattr(args, "publication", False))
     if args.json:
         Path(args.json).write_text(json.dumps(blob, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{out}: {len(runs)} run(s), {len(blob['questions'])} questions"

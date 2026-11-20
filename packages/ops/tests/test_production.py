@@ -764,6 +764,56 @@ def test_survey_frontend_retains_its_publication(tmp_path, name, block, download
         assert (new / download).read_bytes() == b"old download"
 
 
+def eeai_published(tmp_path, model_page=None):
+    runtime = p.Runtime({"dashboard": "eeai", "root": str(tmp_path), "path": "/usr/bin", "socket": str(tmp_path / "site.sock")})
+    old = release(runtime, "old")
+    site = old / "site"
+    site.mkdir()
+    (site / "index.html").write_bytes(dashboard("old UI", 21, "EEAI"))
+    (site / "eeai-data.zip").write_bytes(b"old download")
+    if model_page is not None:
+        (site / "model.html").write_bytes(model_page)
+        (site / "model-inputs.json").write_bytes(b'{"ensemble": {}}')
+    p.write_json(site / "release.json", {"dashboard": "eeai", "commit": "a"*40})
+    p.link(old, runtime.current)
+    return runtime, site
+
+
+def test_eeai_frontend_writes_the_model_page_before_it_has_data(tmp_path):
+    # The survey links to model.html: a frontend deploy before any model data is
+    # published writes it with no data (its "No forecasts yet" state), and the
+    # published snapshot is unchanged, so the existing release still verifies.
+    runtime, site = eeai_published(tmp_path)
+    before = p.data_snapshot(site, ("eeai-data.zip",))["sha256"]
+    new = tmp_path / "candidate"
+    snapshot = runtime.publish_frontend(Path(__file__).resolve().parents[3], new)
+    assert p.page.payload((new / "model.html").read_bytes(), "EEAI_MODEL") is None
+    assert b"No forecasts yet" in (new / "model.html").read_bytes()
+    assert snapshot["sha256"] == before == runtime.snapshot(new)["sha256"]
+
+
+def test_eeai_frontend_keeps_the_published_model_data_and_hashes_it(tmp_path):
+    published = dashboard("old model UI", 7, "EEAI_MODEL")
+    runtime, site = eeai_published(tmp_path, published)
+    new = tmp_path / "candidate"
+    snapshot = runtime.publish_frontend(Path(__file__).resolve().parents[3], new)
+    html = (new / "model.html").read_bytes()
+    assert b"old model UI" not in html and b"No forecasts yet" in html
+    assert p.data_blocks(html) == p.data_blocks(published)
+    assert (new / "model-inputs.json").read_bytes() == b'{"ensemble": {}}'
+    assert "model.html:EEAI_MODEL_DATA" in snapshot["blocks"] and "model-inputs.json" in snapshot["files"]
+    # Changing the model's data changes the published snapshot.
+    (site / "model-inputs.json").write_bytes(b"{}")
+    assert runtime.snapshot(site)["sha256"] != snapshot["sha256"]
+
+
+def test_eeai_publication_refuses_a_synthetic_model_page(tmp_path):
+    runtime, site = eeai_published(tmp_path)
+    (site / "model.html").write_bytes(dashboard("model", 1, "EEAI_MODEL").replace(b'"instrument"', b'"synthetic": true, "instrument"'))
+    with pytest.raises(RuntimeError, match="synthetic results on model.html"):
+        runtime.verify_site(site)
+
+
 def test_survey_job_failure_does_not_publish_partial_models(tmp_path, monkeypatch, runtime):
     runtime = p.Runtime({"dashboard": "eeai", "root": str(tmp_path), "path": "/usr/bin", "socket": str(tmp_path / "site.sock")})
     active = release(runtime, "active")

@@ -164,6 +164,18 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run.main(args)
 
+    def test_synthetic_answers_work_with_a_real_record(self):
+        # The real baselines.csv offers no automation baselines and can hold an
+        # empty CPS cell (a share of 0); made-up answers still cover every component.
+        real = {k: v for k, v in self.record.items() if not k.split(".")[1] in ("sA0", "sM0", "rA0", "rM0")}
+        cell = next(k for k in real if k.startswith("base.sigma0."))
+        real[cell] = {**real[cell], "value": 0.0}
+        keys = [c["id"] for c in M.components(self.spec) + M.baselines(self.spec)]
+        cells, _ = synthetic.answer(self.spec, real, "Model A", keys, TODAY)
+        self.assertEqual(len(cells), len(keys))
+        q = cells[cell]["forecasts"]["2025"]["base"]
+        self.assertTrue(0 < q["q05"] < q["q95"] < 1)
+
 
 @needs_numpy
 class TestMetalog(unittest.TestCase):
@@ -340,6 +352,26 @@ class TestSimulationAndPages(unittest.TestCase):
         self.assertIn("labor_force", moderate)
         self.assertNotIn("gdp_growth", moderate)
         self.assertIn("unconditional", inputs["Model A"])
+
+    def test_a_publication_refuses_synthetic_or_incomplete_model_summaries(self):
+        from eeai.model import simulate
+        blob = simulate.run(self.run_file, worlds=50)
+        sims = self.dir / "pub-sims"
+        sims.mkdir(exist_ok=True)
+        (sims / f"{blob['run_id']}.json").write_text(json.dumps(blob))
+        with self.assertRaisesRegex(ValueError, "synthetic"):
+            mbuild.write(self.dir / "pub-site", sims, publication=True)
+        (sims / f"{blob['run_id']}.json").write_text(json.dumps({**blob, "synthetic": False, "skipped": {"Model B": "incomplete"}}))
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            mbuild.write(self.dir / "pub-site", sims, publication=True)
+        (sims / f"{blob['run_id']}.json").write_text(json.dumps({**blob, "synthetic": False}))
+        self.assertEqual(mbuild.write(self.dir / "pub-site", sims, publication=True)["latest"]["models"], ["Model A", "Model B"])
+        mbuild.write(self.dir / "preview-site", sims)                    # (a preview build takes anything)
+
+    def test_a_synthetic_run_is_never_simulated_into_results(self):
+        from eeai.model import simulate
+        with self.assertRaises(SystemExit):
+            simulate.main(SimpleNamespace(run_file=str(self.run_file), out=None, worlds=10, seed=1))
 
     def test_the_detail_cards_name_only_series_the_simulation_has(self):
         import re

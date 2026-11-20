@@ -205,6 +205,10 @@ def main(args):
         import numpy
     except ImportError:
         sys.exit("simulate needs numpy: pip install -e 'dashboards/eeai[model]'")
+    # Made-up answers never reach results/ (as model run --synthetic): their summary needs --out.
+    rows, _ = load_run(args.run_file)
+    if not args.out and any(r.get("synthetic") for r in rows):
+        sys.exit("simulate: this run file is synthetic; give --out (its summary never goes to results/)")
     blob = run(args.run_file, worlds=args.worlds, seed=args.seed)
     out = Path(args.out or config.MODEL_SIMS)
     out.mkdir(parents=True, exist_ok=True)

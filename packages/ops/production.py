@@ -53,8 +53,8 @@ data_blocks = page.blocks
 frontend_html = page.swap_frontend
 
 
-def data_snapshot(site, files=DATA_FILES):
-    return site_kit.snapshot(site, files)
+def data_snapshot(site, files=DATA_FILES, pages=()):
+    return site_kit.snapshot(site, files, pages)
 
 
 def write_json(path, value):
@@ -456,12 +456,26 @@ class Runtime:
                     p.unlink()
                     p.symlink_to(dest)
 
+    def snapshot(self, site):
+        """The dashboard's published data: its page's blocks, its further pages' blocks, its downloads."""
+        return data_snapshot(site, self.dashboard.downloads, [name for _, name, _ in self.dashboard.pages])
+
     def verify_site(self, site):
         site_kit.verify(site, required=self.dashboard.required)
         if self.dashboard.block:
             blob = page.payload((site / 'index.html').read_bytes(), self.dashboard.block)
             if blob.get('synthetic'):
                 raise RuntimeError('Cannot publish synthetic survey results')
+        # A further page (EEAI's model.html) is optional until it has data, and never synthetic.
+        for _, name, block in self.dashboard.pages:
+            path = site / name
+            if not path.exists():
+                continue
+            if '<html' not in path.read_text().lower():
+                raise RuntimeError(f'Publication page {name} has no HTML document')
+            blob = page.payload(path.read_bytes(), block)
+            if blob and blob.get('synthetic'):
+                raise RuntimeError(f'Cannot publish synthetic results on {name}')
 
     def published_baseline(self, site):
         blob = page.payload((site / 'index.html').read_bytes(), self.dashboard.block)
@@ -508,7 +522,7 @@ class Runtime:
             site = (self.current / 'site').resolve(strict=True)
             self.verify_site(site)
             metadata = json.loads((site / 'release.json').read_text())
-            if metadata['data_snapshot']['sha256'] != data_snapshot(site, self.dashboard.downloads)['sha256']:
+            if metadata['data_snapshot']['sha256'] != self.snapshot(site)['sha256']:
                 raise RuntimeError('Selected site differs from its recorded snapshot')
             self.publish_public(site)
 
@@ -546,7 +560,7 @@ class Runtime:
         source = self.current / 'site'
         self.verify_site(source)
         prior = json.loads((source / 'release.json').read_text())
-        snapshot = data_snapshot(source, self.dashboard.downloads)
+        snapshot = self.snapshot(source)
         previous = prior.get('data_snapshot', {})
         if previous.get('sha256', snapshot['sha256']) != snapshot['sha256']:
             raise RuntimeError('Published data snapshot changed unexpectedly')
@@ -559,6 +573,13 @@ class Runtime:
         html = frontend_html(template, (source / 'index.html').read_bytes())
         shutil.copytree(source, site)
         (site / 'index.html').write_bytes(html)
+        # Further pages get their new interface around their published data, the
+        # same way; one not yet published is written with no data (its empty state).
+        for web, name, _ in self.dashboard.pages:
+            extra = project / web
+            empty = page.render(extra, dict.fromkeys(page.manifest(extra)['blobs'])).encode()
+            published = source / name
+            (site / name).write_bytes(frontend_html(empty, published.read_bytes()) if published.exists() else empty)
         for asset, dest in self.dashboard.assets:
             assets = project / asset
             if assets.exists():
@@ -567,7 +588,7 @@ class Runtime:
                     shutil.rmtree(target)
                 shutil.copytree(assets, target)
         self.verify_site(site)
-        if data_snapshot(site, self.dashboard.downloads) != snapshot:
+        if self.snapshot(site) != snapshot:
             raise RuntimeError('Frontend deployment changed published data')
         return {**snapshot,
                 'origin_commit': previous.get('origin_commit', prior.get('publication_commit')),
@@ -647,7 +668,7 @@ class Runtime:
             prior = json.loads((source / 'release.json').read_text()) if (source / 'release.json').exists() else {}
             if self.name != 'airo':
                 # Imported publications predate our release metadata. Record their data boundary.
-                published = data_snapshot(site, self.dashboard.downloads)
+                published = self.snapshot(site)
                 if prior.get('data_snapshot', published)['sha256'] != published['sha256']:
                     raise RuntimeError('Imported publication disagrees with its recorded snapshot')
                 metadata['data_snapshot'] = published
@@ -659,7 +680,7 @@ class Runtime:
             site.mkdir()
             self.build_data(code, site, self.environment(code, site))
             self.verify_site(site)
-            metadata.update(publication='rebuilt', data_snapshot={**data_snapshot(site, self.dashboard.downloads), 'origin_commit': sha, 'source_release': name})
+            metadata.update(publication='rebuilt', data_snapshot={**self.snapshot(site), 'origin_commit': sha, 'source_release': name})
         else:
             metadata['data_snapshot'] = self.publish_frontend(code, site)
         self.verify_site(site)
@@ -695,11 +716,11 @@ class Runtime:
         self.verify_site(old_site)
         if not (old_site / 'release.json').is_file():
             raise RuntimeError('Previous publication lacks release.json for recovery')
-        if current_snapshot and current_snapshot != data_snapshot(old_site, self.dashboard.downloads)['sha256']:
+        if current_snapshot and current_snapshot != self.snapshot(old_site)['sha256']:
             raise RuntimeError('Previous publication differs from its recorded snapshot')
         metadata = {**previous, 'publication': 'rebuilt', 'publication_commit': previous['commit'],
                     'frontend_commit': previous['commit'],
-                    'data_snapshot': {**data_snapshot(site, self.dashboard.downloads),
+                    'data_snapshot': {**self.snapshot(site),
                                       'origin_commit': previous['commit'], 'source_release': site.name}}
         write_json(site / 'release.json', metadata)
         receipt.update(candidate_snapshot=metadata['data_snapshot']['sha256'], previous_snapshot=current_snapshot,
@@ -747,7 +768,7 @@ class Runtime:
                     or prior.get('previous_snapshot') != (self.release_metadata(release).get('data_snapshot') or {}).get('sha256')):
                 raise RuntimeError('Retry requires a failed transfer or verification against the still-selected publication')
             saved = self.root / 'sites' / ('job-' + retry)
-            if data_snapshot(saved, self.dashboard.downloads)['sha256'] != prior.get('candidate_snapshot'):
+            if self.snapshot(saved)['sha256'] != prior.get('candidate_snapshot'):
                 raise RuntimeError('Saved retry candidate differs from its receipt')
             shutil.copytree(saved, site, dirs_exist_ok=True)
         else:
@@ -870,7 +891,7 @@ class Runtime:
                     self.verify_site(site)
                     meta = self.release_metadata(release)
                     meta.update(publication='rebuilt', publication_commit=meta['commit'], frontend_commit=meta['commit'],
-                                data_snapshot={**data_snapshot(site, self.dashboard.downloads), 'origin_commit': meta['commit'], 'source_release': 'job-' + key})
+                                data_snapshot={**self.snapshot(site), 'origin_commit': meta['commit'], 'source_release': 'job-' + key})
                     write_json(site / 'release.json', meta)
                     link(site, release / 'site')
                     write_json(release / 'release.json', meta)
