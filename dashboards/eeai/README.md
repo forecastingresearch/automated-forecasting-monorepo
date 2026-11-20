@@ -143,8 +143,8 @@ the US economy, and every top-line outcome is computed from them:
   median earnings, and four automation components. Population, the
   no-occupation unemployed, the earnings deciles, the ECI and the PCE price
   index. Five direct forecasts as cross-checks. That is 760 components, asked
-  for 3 scenarios and 8 years (2026 to 2030, 2035, 2040, 2050) as five
-  quantiles each, plus 711 baselines for 2025: 18,951 quantile sets per model,
+  for 3 scenarios and 9 years (2026 to 2030, 2035, 2040, 2045, 2050) as five
+  quantiles each, plus 711 baselines for 2025: 21,231 quantile sets per model,
   and the scenario probabilities.
 - **Definition.** `eeai/data/model/components.json` is written by hand and
   compact (one template per kind of component); `eeai/model/spec.py` expands
@@ -195,7 +195,7 @@ use a made-up placeholder economy.
 - How much compaction costs in coherence within one call is for the first run
   to show. If it hurts, `--split`, or a lookup tool for the definitions (an
   engine change).
-- One call is roughly 880,000 output tokens per model (`model prompt`
+- One call is roughly 980,000 output tokens per model (`model prompt`
   estimates it); what that costs is for a smoke run to measure.
 - No scoring yet.
 

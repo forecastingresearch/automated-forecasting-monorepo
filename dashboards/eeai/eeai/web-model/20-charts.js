@@ -1,7 +1,7 @@
 // One chart: an outcome over the years, as a median line with its 50% and 90%
 // bands (one series: the unconditional forecast) or three medians with their
 // 50% bands (split by AI progress). The years are uneven -- each year to 2030,
-// then 2035, 2040, 2050 -- so the x axis gives 2025-2030 half the width and
+// then every five years to 2050 -- so the x axis gives 2025-2030 half the width and
 // 2030-2050 the other half, with a faint rule where the scale changes.
 const xFrac = y => y <= 2030 ? (y - 2025) / 10 : 0.5 + (y - 2030) / 40;
 

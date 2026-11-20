@@ -37,8 +37,8 @@ class TestDefinition(unittest.TestCase):
         comps, bases = M.components(self.spec), M.baselines(self.spec)
         self.assertEqual(len(comps), 760)                      # per scenario and year
         self.assertEqual(len(bases), 711)
-        self.assertEqual(M.n_sets(self.spec), 760 * 3 * 8 + 711)
-        self.assertEqual(M.n_sets(self.spec), 18951)
+        self.assertEqual(M.n_sets(self.spec), 760 * 3 * 9 + 711)
+        self.assertEqual(M.n_sets(self.spec), 21231)
         self.assertEqual(len({c["id"] for c in comps + bases}), 760 + 711)
         self.assertEqual(sum(1 for c in comps if c["per"] == "cell"), 484)
 
@@ -61,7 +61,7 @@ class TestInstrument(unittest.TestCase):
     def test_one_call_asks_everything_and_a_split_partitions_it(self):
         (one,) = I.calls(self.spec)
         everything = I.asked(self.spec, one)
-        self.assertEqual(sum(len(p) for p in everything.values()), 18951)
+        self.assertEqual(sum(len(p) for p in everything.values()), 21231)
         for split in ("scenario", "block"):
             seen = {}
             for call in I.calls(self.spec, split):
@@ -69,7 +69,7 @@ class TestInstrument(unittest.TestCase):
                     for p in pairs:
                         self.assertNotIn((cid, p), seen, f"{split}: {cid} {p} asked twice")
                         seen[(cid, p)] = call["id"]
-            self.assertEqual(len(seen), 18951, split)
+            self.assertEqual(len(seen), 21231, split)
 
     def test_the_prompt_carries_the_definitions_and_no_advice(self):
         prompt, keys = I.build_prompt(self.spec, I.calls(self.spec)[0], self.record, TODAY)
@@ -119,7 +119,7 @@ class TestRun(unittest.TestCase):
         rows = self._rows(MEMBERS[0])
         self.assertEqual(len(rows), 760 + 711)
         call = rows[0]["call"]
-        self.assertEqual((call["values"], call["values_asked"], call["attempts"]), (18951, 18951, {"all": 1}))
+        self.assertEqual((call["values"], call["values_asked"], call["attempts"]), (21231, 21231, {"all": 1}))
         self.assertTrue(all(r["call"] is None for r in rows[1:]))
         self.assertTrue(all(r["problems"] == [] for r in rows))
         self.assertEqual(len(call["rationales"]), 1 + 3 * 70)
@@ -152,11 +152,11 @@ class TestRun(unittest.TestCase):
         self.assertEqual(len(asked), 2)
         self.assertTrue(asked[1] and all(k.startswith("sigma.") for k in asked[1]))
         self.assertEqual(len(asked[1]), 484)
-        self.assertEqual(rows[0]["call"]["values"], 18951)
+        self.assertEqual(rows[0]["call"]["values"], 21231)
 
     def test_a_split_run_merges_into_the_same_rows(self):
         rows = self._rows(MEMBERS[0], split="scenario")
-        self.assertEqual(rows[0]["call"]["values"], 18951)
+        self.assertEqual(rows[0]["call"]["values"], 21231)
         self.assertEqual(set(rows[0]["call"]["attempts"]), {"base", "slow", "moderate", "rapid"})
 
     def test_synthetic_rows_never_go_to_results(self):
@@ -284,7 +284,7 @@ class TestSimulationAndPages(unittest.TestCase):
         self.assertEqual(set(a["summaries"]), {"Model A", "Model B", "ensemble"})
         self.assertEqual(set(a["summaries"]["ensemble"]), {"unconditional", "slow", "moderate", "rapid"})
         gdp = a["summaries"]["ensemble"]["unconditional"]["gdp_growth"]
-        self.assertEqual(len(gdp), 9)
+        self.assertEqual(len(gdp), 10)                               # 2025, then the nine years asked
         self.assertEqual(gdp[0], [None] * 5)
         self.assertTrue(all(c[0] <= c[2] <= c[4] for c in gdp[1:]))
         self.assertEqual(len(a["summaries"]["Model A"]["rapid"]["sector_growth"]), 22)
