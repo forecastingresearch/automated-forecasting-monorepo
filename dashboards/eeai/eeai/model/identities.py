@@ -39,12 +39,20 @@ import numpy as np
 
 
 def _with_base(base_value, fut_value):
-    """Prepend the 2025 value as year 0: (worlds, ...) + (worlds, years, ...) -> (worlds, 1 + years, ...)."""
+    """Put the 2025 value in front of the forecast years, so the series starts in 2025.
+
+    base_value has no year axis; fut_value has one, after the world axis. The
+    result has one more year than fut_value."""
     return np.concatenate([np.asarray(base_value)[:, None], fut_value], axis=1)
 
 
 def _rate(ratio, gaps):
-    """A ratio over each gap -> the annual rate, with 2025 NaN. ratio (worlds, years, ...)."""
+    """Turn growth factors into annual growth rates.
+
+    ratio[:, t] is how much something grew from the previous forecast year to
+    year t (1.10 means 10%). Over a gap of g years the annual rate is
+    ratio ** (1 / g) - 1. A NaN goes in front for 2025, which has no year before
+    it, so the result lines up with the other series."""
     g = np.asarray(gaps, dtype=float).reshape((1, -1) + (1,) * (ratio.ndim - 2))
     with np.errstate(invalid="ignore", divide="ignore"):
         r = np.power(ratio, 1 / g) - 1
@@ -52,7 +60,20 @@ def _rate(ratio, gaps):
 
 
 def compute(base, fut, gaps):
-    """-> (outcomes, counts). outcomes: {name: (worlds, 1 + years[, k])}; counts: rescaling tallies for the diagnostics."""
+    """Apply the identities in every world: components in, outcomes out.
+
+    Returns (outcomes, counts). outcomes maps each outcome's name (gdp_growth,
+    unemployment_rate, ...) to an array with a world axis and a year axis, plus
+    an industry or occupation axis for outcomes broken down by one.
+
+    counts records two corrections made to the panel's draws, which simulate.py
+    reports so you can see how often they were needed: share_sum is what each
+    industry's occupation shares added up to before being rescaled to 1, and
+    automation_rescaled marks where the two automation shares summed above 1
+    and were scaled down.
+
+    The steps follow the design note ("Initial economy model for the
+    dashboard"); see it for the economics behind them."""
     W = base["N0"].shape[0]
     ones_i = np.ones_like(base["N0"])
     Q = _with_base(ones_i, fut["Q"])
@@ -178,8 +199,12 @@ def compute(base, fut, gaps):
 
 
 def baseline_totals(base):
-    """The 2025 totals the identities give from baselines (one world each) -> {name: (worlds,)}:
-    nominal GDP (US$ billions), employment (millions), unemployment rate and LFPR (percent)."""
+    """A check on the 2025 baselines: the economy-wide totals they add up to.
+
+    Returns nominal GDP (US$ billions), employment (millions), and the
+    unemployment rate and labor force participation rate (percent).
+    simulate.py calls it on the panel's median baselines and compares the
+    results with the official 2025 figures."""
     sig = base["sigma0"] / base["sigma0"].sum(-1, keepdims=True)
     E_o = (base["E0"][..., None] * sig).sum(-2)
     E = base["E0"].sum(-1)
