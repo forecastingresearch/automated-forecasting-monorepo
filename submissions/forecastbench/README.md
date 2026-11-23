@@ -1,5 +1,9 @@
 # ForecastBench submission setup
 
+Automatic rounds are currently paused. The machinery below is retained, but
+`packages/ops/jobs.json` contains no ForecastBench jobs. Resume scheduling only
+after an explicit decision to do so, by adding reviewed round entries and deploying.
+
 The scheduled round script builds and validates submission files, uploads them
 with a dedicated service account, and reports success or pages on failure.
 Installations must configure the private upload settings before enabling it.

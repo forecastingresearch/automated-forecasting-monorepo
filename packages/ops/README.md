@@ -123,6 +123,10 @@ left out of the ensemble; a key that is there and refused fails the run.
 
 ## Scheduling
 
+ForecastBench scheduling is paused: `jobs.json` contains no ForecastBench jobs.
+Keep future rounds unscheduled until an explicit decision to resume. The round
+runner, validation, upload, and recovery tooling remain available.
+
 Change `packages/ops/jobs.json` and merge/deploy it. The daily UTC wake-up delegates
 experiment selection to `experiments/*.toml`; days with nothing due make no paid
 calls. ForecastBench entries have explicit years and due dates. Creating a new
