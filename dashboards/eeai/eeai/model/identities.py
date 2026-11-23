@@ -1,22 +1,39 @@
-"""The design note's accounting identities, over many simulated worlds at once.
+"""The design note's accounting identities: from forecast components to outcomes.
 
-Every input is an array whose first axis is the world. `base` holds the 2025
-baselines (by symbol: N0, H0, E0, lambda0 (worlds, industries); sigma0
-(worlds, industries, occupations); u0, omega0, sA0.. (worlds, occupations);
-n0, Pop0, p10_0.. (worlds,)). `fut` holds the forecast years, a year axis
-after the world axis (Q (worlds, years, industries), sigma (worlds, years,
-industries, occupations), ...). `gaps` is each forecast year's distance from
-the one before (2026 from 2025 is 1; 2035 from 2030 is 5).
+The panel forecasts each component (an industry's real output, an
+occupation's unemployment rate, ...) as a distribution: five quantiles, not
+one number. To get the distribution of an outcome such as GDP growth,
+simulate.py runs a Monte Carlo simulation: it draws one value of every
+component, computes the outcomes from those values with the identities
+below, and repeats this thousands of times. One complete set of draws is
+called a *world*. An outcome's spread across worlds is its forecast.
 
-The returned outcomes carry 2025 as year 0, so every series starts there; a
-growth rate has no value for 2025 (NaN). Growth is an annual rate: year on
-year where the gap is one year, the average annual rate over the gap where it
-is longer. Units: N0 in US$ billions and H0 in millions of hours, so pay per
-hour is N/H x 1000 dollars.
+Each component has a short symbol, defined in data/model/components.json:
+Q is an industry's real value added, u an occupation's unemployment rate,
+and so on. A 2025 starting value has the same symbol followed by 0 (N0,
+u0). The code below mostly uses these symbols as variable names.
 
-The outcomes also carry the inputs they were computed from ("in." + symbol,
-as drawn, 2025 first) and a few intermediate totals, so the page can show
-how each outcome is put together.
+compute() takes all the worlds at once. Each component arrives as a numpy
+array, keyed by its symbol, whose first axis is the world. The other axes are
+what the component is broken down by. For example, real value added is
+forecast for each year and industry, so fut["Q"][w, t, i] is world w's real
+value added for industry i in forecast year t. The three arguments:
+
+    base   the starting values for 2025. These also differ from world to
+           world, because the panel gives them as quantiles too.
+    fut    the forecast components, for every forecast year.
+    gaps   each forecast year's distance from the one before: 1 through
+           2030, then 5.
+
+Every returned series starts with 2025, so it has one more year than the
+forecast. A growth rate is annual (over a five-year gap, the average annual
+rate) and is NaN for 2025, which has no year before it. Pay per hour is
+multiplied by 1000 because the 2025 nominal value added (N0) is in US$
+billions and hours worked (H0) are in millions.
+
+Besides the outcomes, compute() returns the inputs themselves (keyed "in." +
+symbol) and a few intermediate totals, so the page can show how each outcome
+is built up.
 """
 import numpy as np
 
