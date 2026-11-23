@@ -42,14 +42,12 @@ class TestDefinition(unittest.TestCase):
         self.assertEqual(len({c["id"] for c in comps + bases}), 760 + 711)
         self.assertEqual(sum(1 for c in comps if c["per"] == "cell"), 484)
 
-    def test_the_scenarios_are_copied_in_and_the_wording_is_filled(self):
+    def test_the_scenarios_are_copied_in_and_every_transform_is_known(self):
         survey = json.loads((config.QUESTIONS).read_text(encoding="utf-8"))
         # The wording, verbatim; the survey's resolution rule for the scenario question is not the model's.
         wording = {k: v for k, v in survey["scenarios"].items() if k != "resolution"}
         self.assertEqual(self.spec["scenarios"], wording)
         for c in M.components(self.spec) + M.baselines(self.spec):
-            self.assertNotIn("{industry}", c["text"], c["id"])
-            self.assertNotIn("{occupation}", c["text"], c["id"])
             self.assertIn(c["transform"], ("none", "log", "logit"))
 
 

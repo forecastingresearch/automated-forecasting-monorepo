@@ -32,16 +32,18 @@ def scenario_ids(spec):
 
 
 def _expand(spec, template):
-    """One template -> its components, as (industry, occupation) pairs; None where not indexed by it."""
+    """One template -> its components, as (industry, occupation) pairs; None where not indexed by it.
+
+    A component keeps the template's text, placeholders and all: the prompt
+    states each template once, in generic words (instrument._generic), and
+    never a component's own wording."""
     ind, occ = spec["industries"], spec["occupations"]
     pairs = {"industry": [(i, None) for i in ind], "occupation": [(None, o) for o in occ],
              "cell": [(i, o) for i in ind for o in occ], "scalar": [(None, None)]}[template["per"]]
     out = []
     for i, o in pairs:
         cid = ".".join([template["symbol"]] + [p["id"] for p in (i, o) if p])
-        text = template["text"].replace("{industry}", i["name"].lower() if i else "")
-        text = text.replace("{occupation}", f"{o['name'].lower()} occupations" if o else "")
-        out.append({**{k: v for k, v in template.items() if k != "text"}, "id": cid, "text": text,
+        out.append({**template, "id": cid,
                     "industry": i and i["id"], "occupation": o and o["id"],
                     "resolvable": template.get("resolvable", True)})
     return out
