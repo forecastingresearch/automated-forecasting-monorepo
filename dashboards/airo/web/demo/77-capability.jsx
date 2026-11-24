@@ -63,7 +63,7 @@ function EciTrendChart({ eci, variants, active, onPick }) {
   // The step path: hold each score until the next new high.
   const step = hist.map((h, i) => {
     const xa = x(h.date), ya = y(h.score);
-    const xb = i + 1 < hist.length ? x(hist[i + 1].date) : x(eci.trend && eci.trend.fit ? eci.trend.fit.anchor.date : h.date);
+    const xb = i + 1 < hist.length ? x(hist[i + 1].date) : x(Math.max(capDate(h.date).getTime(), capDate(eci.csvDate || h.date).getTime()));
     return (i === 0 ? `M${xa},${ya}` : `L${xa},${ya}`) + `L${xb},${ya}`;
   }).join("");
   const band = curve.length ? "M" + curve.map(c => `${x(c.date)},${y(c.p75)}`).join("L") + "L" + [...curve].reverse().map(c => `${x(c.date)},${y(c.p25)}`).join("L") + "Z" : "";
@@ -214,10 +214,10 @@ function CapabilityPanel({ onDefinitions }) {
           <EciTrendChart eci={eci} variants={variants} active={vkey} onPick={k => { setVkey(k); setPicked(null); }} />
         </div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 2, background: "var(--ink)" }}></span>Frontier ECI</span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 2, background: "var(--ink)" }}></span>Frontier ECI (Epoch {eci.csvDate})</span>
           <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--ink)" fillOpacity="0.14" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" /><line x1="1.5" x2="12.5" y1="9" y2="9" stroke="var(--ink)" strokeWidth="2.5" /></svg>Ensemble's ECI percentiles</span>
           {CAP && CAP.leap && <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--panel)" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" strokeDasharray="3 2" /><path d="M7,5L11,9L7,13L3,9Z" fill="var(--ink)" /></svg><span>LEAP supers (<a href={CAP.leap.url}>Wave 5</a>)</span></span>}
-          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>)</span></span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>, {eci.trend.dataDate})</span></span>
         </div>
       </Panel>
 

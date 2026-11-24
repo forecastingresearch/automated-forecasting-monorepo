@@ -8,9 +8,20 @@
   },
   "generatedAt": null,
   "eci": {
-    "csvDate": "2026-09-10",
-    "definition": "Epoch AI's Capabilities Index: one score per model across dozens of benchmarks, fit with an item-response model. Frontier ECI = the highest score of any released model from a US developer.",
+    "csvDate": "2026-10-01",
+    "snapshot": "epoch_capabilities_index_2026-10-01.csv",
+    "historySource": "https://epoch.ai/data/eci_scores.csv",
     "history": [
+      {
+        "date": "2023-03-14",
+        "score": 125.9,
+        "model": "GPT-4 (Mar 2023)"
+      },
+      {
+        "date": "2024-01-25",
+        "score": 126.5,
+        "model": "GPT-4 Turbo (Nov 2023)"
+      },
       {
         "date": "2024-02-29",
         "score": 126.9,
@@ -18,48 +29,58 @@
       },
       {
         "date": "2024-04-09",
-        "score": 127.25,
+        "score": 127.2,
         "model": "GPT-4 Turbo (Apr 2024)"
       },
       {
         "date": "2024-05-13",
-        "score": 128.98,
+        "score": 129.0,
         "model": "GPT-4o (May 2024)"
       },
       {
         "date": "2024-06-20",
         "score": 130.0,
-        "model": "Claude 3.5 Sonnet (Jun 2024)"
+        "model": "Claude 3.5 Sonnet"
       },
       {
         "date": "2024-09-12",
-        "score": 135.84,
-        "model": "o1-mini (high)"
+        "score": 134.8,
+        "model": "o1-preview"
+      },
+      {
+        "date": "2024-09-12",
+        "score": 135.8,
+        "model": "o1-mini"
       },
       {
         "date": "2024-12-17",
         "score": 141.9,
-        "model": "o1 (high)"
+        "model": "o1"
       },
       {
         "date": "2025-03-31",
         "score": 144.2,
-        "model": "Gemini 2.5 Pro Preview (Mar 2025)"
+        "model": "Gemini 2.5 Pro (Mar 2025)"
       },
       {
         "date": "2025-04-16",
-        "score": 146.91,
-        "model": "o3 (high)"
+        "score": 145.6,
+        "model": "o4-mini"
+      },
+      {
+        "date": "2025-04-16",
+        "score": 146.9,
+        "model": "o3"
       },
       {
         "date": "2025-06-10",
-        "score": 147.46,
+        "score": 147.4,
         "model": "o3-pro"
       },
       {
         "date": "2025-08-07",
         "score": 150.0,
-        "model": "GPT-5 (low)"
+        "model": "GPT-5"
       },
       {
         "date": "2025-10-07",
@@ -68,50 +89,71 @@
       },
       {
         "date": "2025-11-18",
-        "score": 152.94,
-        "model": "Gemini 3 Pro Preview"
+        "score": 152.9,
+        "model": "Gemini 3 Pro"
       },
       {
         "date": "2025-12-11",
-        "score": 155.3,
+        "score": 153.5,
+        "model": "GPT-5.2"
+      },
+      {
+        "date": "2025-12-11",
+        "score": 155.4,
         "model": "GPT-5.2 Pro"
       },
       {
         "date": "2026-02-05",
-        "score": 156.4,
-        "model": "GPT-5.3 Codex (high)"
+        "score": 156.8,
+        "model": "GPT-5.3 Codex"
       },
       {
         "date": "2026-03-05",
-        "score": 158.89,
-        "model": "GPT-5.4 Pro (xhigh)"
+        "score": 156.9,
+        "model": "GPT-5.4"
+      },
+      {
+        "date": "2026-03-05",
+        "score": 159.1,
+        "model": "GPT-5.4 Pro"
       },
       {
         "date": "2026-04-23",
-        "score": 159.23,
-        "model": "GPT-5.5 (xhigh)"
+        "score": 159.2,
+        "model": "GPT-5.5"
       },
       {
         "date": "2026-04-23",
-        "score": 162.03,
-        "model": "GPT-5.5 Pro (xhigh)"
+        "score": 162.4,
+        "model": "GPT-5.5 Pro"
       },
       {
-        "date": "2026-06-09",
+        "date": "2026-07-24",
         "score": 162.9,
-        "model": "Claude Fable 5 (max)"
+        "model": "Claude Opus 5"
+      },
+      {
+        "date": "2026-09-01",
+        "score": 164.8,
+        "model": "Claude Fable 5.1"
       },
       {
         "date": "2026-09-03",
-        "score": 169.2,
-        "model": "GPT-6 Astra (high)"
+        "score": 166.5,
+        "model": "GPT-6 Astra"
+      },
+      {
+        "date": "2026-09-22",
+        "score": 167.3,
+        "model": "Claude Opus 5.5"
       }
     ],
     "latest": {
-      "date": "2026-09-03",
-      "score": 169.2,
-      "model": "GPT-6 Astra (high)"
+      "date": "2026-09-22",
+      "score": 167.3,
+      "model": "Claude Opus 5.5"
     },
+    "definition": "Epoch AI's Capabilities Index: one score per model across dozens of benchmarks, fit with an item-response model. Frontier ECI = the highest score of any released model from a US developer.",
     "trend": {
       "source": "METR graph's live ECI trend, linear default",
       "url": "https://metrgraph.streamlit.app/?tab=eci",
