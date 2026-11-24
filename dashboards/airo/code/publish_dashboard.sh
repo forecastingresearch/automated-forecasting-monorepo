@@ -81,8 +81,7 @@ printf '%s\n' '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" c
 # The dataset behind the pages (redlines/export.py), the "Download forecasts"
 # button's target: every forecast from every model in every run.
 publish results/forecasts.csv "$DOCROOT/forecasts.csv"
-# ... and the rationales beside them (one line per call x question x
-# scenario; join on call_id, question_id and the condition column).
+# ... and the rationales beside them (one line per call; join on call_id).
 publish results/rationales.csv "$DOCROOT/rationales.csv"
 # ... and the debriefs (2026-09-15; one line per call x question group).
 if [ -f results/debriefs.csv ]; then publish results/debriefs.csv "$DOCROOT/debriefs.csv"; fi

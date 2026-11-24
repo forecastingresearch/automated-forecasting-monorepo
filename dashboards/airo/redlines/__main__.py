@@ -228,8 +228,7 @@ def _build_csv():
 
     n = forecasts_csv()
     print(f"csv: {n} forecasts -> {OUT}")
-    # The rationales beside them: one line per (call, question, scenario),
-    # joined on call_id, question_id and the `condition` column.
+    # The rationales beside them: one line per call, joined on call_id.
     m = rationales_csv()
     print(f"csv: {m} rationales -> {RATIONALES_OUT}")
     # And the debriefs (2026-09-15): one line per (call, question group).

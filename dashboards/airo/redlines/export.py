@@ -28,12 +28,10 @@ published beside index.html by code/publish_dashboard.sh.
 
 A SECOND FILE, results/rationales.csv (2026-09-08; project lead: all
 forecasts and rationales, including those from legacy models, must be
-available): one line per (call, question, scenario) -- the model's written
-rationale for that question in that call, and the sources it cited -- from
-the same rows as the forecasts file, joined on `call_id` + `question_id` +
-`scenario`. Separate because a rationale is per question per call while
-the forecasts file is per horizon: repeating a 2,000-character rationale
-on every horizon line would multiply the download several times over.
+available): one line per call -- the rationale the model wrote for that
+call, and the sources it cited -- from the same rows as the forecasts file,
+joined on `call_id`. One call answers the full instrument and writes one
+rationale, so the file keeps the text one time for each call.
 
 EVERYTHING (2026-09-08; project lead: include everything, even if it
 requires a .zip). Both CSVs now carry every row the logs hold -- every
@@ -181,16 +179,19 @@ def _lines(rows, qs):
 COMBINED_LOG = CONDITIONAL_LOG.parent / "conditional_runs_combined.jsonl"
 
 RATIONALE_COLUMNS = ["elicited_at", "run_id", "protocol", "experiment", "model", "model_id",
-                     "instrument_version", "instrument_version_source", "run_date", "counting_window", "prompt_sha256",
-                     "question_id", "question", "scenario", "scenario_label", "arm",
-                     "call_id", "grounded", "search_hits", "rationale", "sources",
+                     "instrument_version", "instrument_version_source", "run_date", "prompt_sha256",
+                     "arm", "call_id", "grounded", "search_hits", "rationale", "sources",
                      "panel_set", "panel_snapshot"]
 
 
-def _rationale_lines(rows, qs):
+def _rationale_lines(rows):
+    # Each row of a call has the same rationale. Keep the first row of each call.
+    seen = set()
     for r in rows:
-        scenario = r.get("scenario") or {}
-        q = qs.get(r["question_id"], {})
+        call_id = r.get("call_id") or ""
+        if call_id in seen:
+            continue
+        seen.add(call_id)
         yield {
             "elicited_at": r.get("elicited_at", ""),
             "run_id": r.get("run_id", ""),
@@ -198,17 +199,12 @@ def _rationale_lines(rows, qs):
             "experiment": r.get("experiment") or "",
             "model": r.get("label", ""),
             "model_id": r.get("model", ""),
-            "question_id": r["question_id"],
-            "question": _question_text(r, qs),
             "instrument_version": _instrument_version(r),
             "instrument_version_source": _version_source(r),
             "run_date": r.get("run_date", ""),
-            "counting_window": json.dumps(r["counting_window"], sort_keys=True) if r.get("counting_window") else "",
             "prompt_sha256": r.get("prompt_sha256", ""),
-            "scenario": scenario.get("id", ""),
-            "scenario_label": scenario.get("label", ""),
             "arm": r.get("arm") or "",
-            "call_id": r.get("call_id") or "",
+            "call_id": call_id,
             "grounded": "" if r.get("grounded") is None else int(bool(r.get("grounded"))),
             "search_hits": r.get("search_hits") if r.get("search_hits") is not None else "",
             "rationale": r.get("rationale") or "",
@@ -332,9 +328,8 @@ def _sorted_csv(lines, out, columns, sort_columns):
 def rationales_csv(out=RATIONALES_OUT, conditional_log=CONDITIONAL_LOG, combined_log=COMBINED_LOG):
     """Write the rationales CSV; return the number of data lines."""
     return _sorted_csv(
-        _rationale_lines(_published_rows(conditional_log, combined_log), all_questions()),
-        out, RATIONALE_COLUMNS,
-        ("elicited_at", "model", "question_id", "scenario", "arm", "call_id"))
+        _rationale_lines(_published_rows(conditional_log, combined_log)),
+        out, RATIONALE_COLUMNS, ("elicited_at", "model", "arm", "call_id"))
 
 
 def debriefs_csv(out=DEBRIEFS_OUT, conditional_log=CONDITIONAL_LOG, combined_log=COMBINED_LOG):
@@ -367,9 +362,8 @@ raw logs behind them. Built by `python3 -m redlines build --views csv`
 forecasts.csv -- one line per (call, question, horizon, scenario):
   {forecast_columns}
 
-rationales.csv -- one line per (call, question, scenario): the model's written
-rationale for that question in that call, and the sources it named. Join to
-forecasts.csv on call_id + question_id + scenario.
+rationales.csv -- one line per call: the rationale the model wrote for that
+call, and the sources it named. Join to forecasts.csv on call_id.
   {rationale_columns}
 
 debriefs.csv -- one line per (call, question), from 2026-09-16: what the model
