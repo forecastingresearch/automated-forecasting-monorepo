@@ -5,7 +5,7 @@
 // bench (redlines/views/causal.py). Each dot is one model; the dashboard's own
 // panel is drawn in its own colours (gray for the rest) and always labelled, the rest of the
 // roster in grey with the ends of the range labelled and everything on hover.
-const OBS = (typeof window !== "undefined" && window.__OBSERVATIONAL__) || null;
+const OBS = observationalDisplayData((typeof window !== "undefined" && window.__OBSERVATIONAL__) || null);
 const CAUSAL = (typeof window !== "undefined" && window.__CAUSAL__) || null;
 
 // A tie-aware rank correlation, mirroring redlines/stats.py::spearman_ties
@@ -41,7 +41,7 @@ const fmtSigned = v => (v == null ? "n/a" : (v >= 0 ? "+" : "−") + Math.abs(v)
 // band (the noise ceiling); `refs` = [{y, label, color}] draws dashed
 // reference lines (climatology / the simulator's own distribution). `tip(pt)`
 // returns tooltip HTML.
-function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs, tip }) {
+function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs, tip, legend }) {
   const ref = React.useRef(null);
   React.useEffect(() => {
     if (!window.tippy || !ref.current) return;
@@ -157,11 +157,10 @@ function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs,
         <text x={-H / 2} y={13} transform="rotate(-90)" textAnchor="middle" fontSize="10.5" fill="var(--ink-soft)">{yLabel}</text>
       </svg>
       <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-        {/* Panel members in their own colours, the same as on every other
-            chart; the rest of the roster in the one retired gray. Both come
-            from the blob (redlines/roster.py; Nick, 2026-09-08). */}
-        {drawn.filter(p => p.inPanel).map(p => <LegendDot key={p.id || p.label} color={p.color} label={p.label + " (panel)"} />)}
-        <LegendDot color={(drawn.find(p => !p.inPanel) || {}).color || "var(--ink-faint)"} label="Other models on the ECI roster (hover for names)" />
+        {legend !== undefined ? legend : <>
+          {drawn.filter(p => p.inPanel).map(p => <LegendDot key={p.id || p.label} color={p.color} label={p.label + " (panel)"} />)}
+          <LegendDot color={(drawn.find(p => !p.inPanel) || {}).color || "var(--ink-faint)"} label="Other models on the ECI roster (hover for names)" />
+        </>}
       </div>
     </div>
   );
@@ -175,7 +174,7 @@ function ObservationalPanel({ embedded }) {
     + `<strong>${p.label}</strong> &nbsp;<span style="color:#888">ECI ${p.eci.toFixed(0)}</span><br>`
     + `Rank ρ, implied vs measured: <strong>${fmtSigned(p.rho)}</strong> (${p.pairsScored} pairs)<br>`
     + `<span style="color:#888">direction ${p.direction.k}/${p.direction.n} · control shift ${p.controlShift == null ? "n/a" : p.controlShift.toFixed(3)} `
-    + `${p.pass ? "✓ passes" : "✕ fails"} the ${d.bar} bar · coherence ε ${p.coherence.toFixed(3)}</span>`
+    + `· coherence ε ${p.coherence.toFixed(3)}</span>`
     + `<br><span style="color:#888">${p.responses} responses</span></div>`;
   const runDate = Array.isArray(d.run.due) ? d.run.due.join(", ") : d.run.due;
   // The axis starts at 0.5 when every model clears it (the four-model run
@@ -197,12 +196,11 @@ function ObservationalPanel({ embedded }) {
         yLabel="Rank ρ, implied vs measured association"
         band={{ lo: d.noise.lo, hi: d.noise.hi, line: d.noise.ceiling,
           label: `noise ceiling ${d.noise.ceiling.toFixed(2)} [${d.noise.lo.toFixed(2)}–${d.noise.hi.toFixed(2)}]` }}
+        legend={<><LegendDot color="#0969da" label="Within noise-ceiling band" /><LegendDot color="#91989f" label="Outside noise-ceiling band" /></>}
         tip={tip} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line-soft)" }}>
-        <Stat label={`Capability ↔ skill (ρ), ${pts.length} models`} value={fmtSigned(rho)} color="var(--model)" />
-        <Stat label={`Best — ${d.best.label}`} value={fmtSigned(d.best.rho)} color="var(--dash)" />
-        <Stat label="Pass the pre-registered bar" value={`${d.nPass} of ${pts.length}`} color="var(--ink)" />
-        <Stat label="Noise ceiling" value={d.noise.ceiling.toFixed(2)} color="var(--ink-soft)" />
+        <Stat label={`Capability ↔ skill (ρ), ${pts.length} models`} value={fmtSigned(rho)} color="var(--ink)" />
+        <Stat label="Within noise-ceiling band" value={`${d.nWithinNoise} of ${pts.length}`} color="var(--ink)" />
       </div>
     </FigFrame>
   );

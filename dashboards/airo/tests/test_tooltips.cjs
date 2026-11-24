@@ -144,3 +144,26 @@ test('elicitation matrix keeps public cells, missing responses and legacy baseli
   assert.equal(legacy.rows[0].median, 3);
   assert.deepEqual(legacy.models, [{ label: 'A', median: 2 }, { label: 'B', median: 4 }]);
 });
+
+test('Graph 5 extension preserves published inputs and merges complete panels once', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../web/demo/44-observational-extension.js'), 'utf8'), context);
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const match = html.match(/window\.__OBSERVATIONAL__\s*=\s*(\{[^]*?\});/);
+  assert.ok(match, 'published observational data exists');
+  const base = JSON.parse(match[1]);
+  const before = JSON.stringify(base);
+  const merged = context.observationalDisplayData(base);
+  assert.equal(JSON.stringify(base), before, 'does not mutate snapshot');
+  assert.equal(merged.models.length, 43);
+  assert.equal(merged.nWithinNoise, 9);
+  assert.equal(merged.models.filter(m => m.color === '#0969da').length, 9);
+  assert.equal(merged.best.id, 'openai/gpt-6-astra');
+  for (const old of base.models) {
+    const displayed = merged.models.find(m => m.id === old.id);
+    assert.equal(displayed.rho, old.rho);
+    assert.equal(displayed.eci, old.eci);
+  }
+  assert.equal(context.observationalDisplayData(merged).models.length, 43);
+  assert.equal(context.observationalDisplayData(null), null);
+});
