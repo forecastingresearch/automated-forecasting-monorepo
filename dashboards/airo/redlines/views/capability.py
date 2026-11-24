@@ -32,7 +32,7 @@ import statistics as st
 from datetime import datetime
 
 from ..logs import log_exists
-from ..conditional import (LOSS_LEG, group_rows, group_view, latest_conditional, method_notes, newest_protocol, protocol_line)
+from ..conditional import (COMBINED_PROTOCOL, LOSS_LEG, group_rows, group_view, latest_conditional, method_notes, newest_protocol, protocol_line)
 from ..config import REPO_ROOT
 from ..runlog import elicitation_date
 from ..runlog import instrument_info
@@ -185,12 +185,13 @@ def _pick(sources):
         # The set's protocol and its predecessors (redlines.conditional
         # PROTOCOL_LINEAGE): the newest tag present wins, so a bump keeps the
         # tab on the old rows until the first run under the new tag lands.
-        rows = latest_conditional(str(log), protocol_line(spec["protocol"]), prefer_protocol=True) if log_exists(log) else []
-        rows, proto = newest_protocol(rows, protocol_line(spec["protocol"]))
+        current_protocol = COMBINED_PROTOCOL if spec.get("slug") == "combined" else spec["protocol"]
+        rows = latest_conditional(str(log), protocol_line(current_protocol), prefer_protocol=True) if log_exists(log) else []
+        rows, proto = newest_protocol(rows, protocol_line(current_protocol))
         if not rows:
             if best is None:
                 best = (None, path, group_view(spec, group) if group else spec, [], slug, group,
-                        spec["protocol"])
+                        current_protocol)
             continue
         day = max(elicitation_date(r) for r in rows)
         if best is not None and best[0] is not None and day <= best[0]:

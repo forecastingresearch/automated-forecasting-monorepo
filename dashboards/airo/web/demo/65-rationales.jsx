@@ -1,4 +1,4 @@
-/* Original model explanations; no generated ensemble or revision narrative. */
+/* Recorded catastrophe explanations; older answers remain explicitly historical. */
 const RATIONALES = window.__RATIONALES__ || { calls: {}, questions: {} };
 // Horizon keys are shared with the severity ladder, whose labels carry the
 // dated window ("within 12 months (by 2027-09-16)"); fall back to "by <key>".
@@ -56,18 +56,48 @@ function RationaleForecastTable({ rows, model, conditionLabel }) {
 }
 function RationaleExplanation({ id, call: c, qid }) {
   const explanation = (c.debriefs || {})[qid];
+  const followup = c.postForecast;
+  const completed = followup && (followup.status || {}).complete;
+  const current = completed && (followup.explanations || {})[qid];
+  const comparison = (followup && (followup.comparisons || {})[qid]) || {};
   const prompt = (RATIONALES.prompts || {})[c.promptId];
   return <div style={{ marginTop: 16 }}>
     <h3 style={{ fontSize: 13, margin: "0 0 6px" }}>Model rationale</h3>
-    <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>{explanation ? "Model’s explanation for this question, recorded after its forecasts. Covers all horizons." : "Model’s original explanation for its full forecast batch; not specific to this question or horizon."}</p>
-    <p style={{ whiteSpace: "pre-wrap" }}>{(explanation && explanation.rationale) || c.rationale || "No written rationale recorded."}</p>
-    {explanation && explanation.weakest_link && <p><strong>Weakest assumption: </strong>{explanation.weakest_link}</p>}
-    <details><summary style={{ cursor: "pointer" }}>Sources cited by this model</summary>
-      <RationaleSources sources={(explanation && explanation.key_sources) || c.sources} />
-    </details>
-    <details style={{ marginTop: 8 }}><summary style={{ cursor: "pointer" }}>Original batch explanation and provenance</summary>
-      {explanation && <p style={{ whiteSpace: "pre-wrap" }}>{c.rationale}</p>}
+    {current ? <>
+      <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>Collected after these forecasts were locked. Covers all horizons for this catastrophe question.</p>
+      <p><strong>A. Why this level of risk?</strong></p>
+      <p style={{ whiteSpace: "pre-wrap" }}>{current.level}</p>
+      <p><strong>B. Why did it change?</strong></p>
+      {comparison.available ? <>
+        <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>Compared with {comparison.date}, for the same model and prompt condition.</p>
+        <p style={{ whiteSpace: "pre-wrap" }}>{current.change}</p>
+        {comparison.elicitation_changed && <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>The earlier forecast requested a rationale alongside the numbers. This forecast collected explanations afterward, so movement may also reflect that change.</p>}
+        <details><summary style={{ cursor: "pointer" }}>Previous forecasts and dates</summary>
+          <p>The model’s account is a retrospective explanation, not proof of what caused the change. Rolling horizons end on different dates.</p>
+          <div style={{ overflowX: "auto" }}><table className="tv">
+            <thead><tr><th>Horizon</th><th>Previous forecast</th><th>Previous end date</th><th>Current end date</th></tr></thead>
+            <tbody>{Object.entries(comparison.probabilities || {}).map(([h, p]) => <tr key={h}>
+              <th scope="row">{rationaleHorizonLabel(h).replace(/ \(by .*\)$/, "")}</th>
+              <td className="mono">{rationalePct(p * 100)}</td><td>{(comparison.previous_resolves_on || {})[h]}</td><td>{(comparison.current_resolves_on || {})[h]}</td>
+            </tr>)}</tbody>
+          </table></div>
+          {comparison.repeat_count > 1 && <p>Previous numbers average {comparison.repeat_count} repeat calls in this condition.</p>}
+        </details>
+      </> : <p>Comparison unavailable. {comparison.reason || "No comparable previous forecast was recorded."}</p>}
+      <details style={{ marginTop: 8 }}><summary style={{ cursor: "pointer" }}>Sources cited by this model</summary>
+        <RationaleSources sources={current.key_sources || []} />
+      </details>
+    </> : <p>{followup ? "The follow-up explanation was not completed. The saved forecasts are unchanged." : "The two-part explanation was not collected for this historical forecast."}</p>}
+    {(c.rationale || explanation) && <details style={{ marginTop: 8 }}>
+      <summary style={{ cursor: "pointer" }}>Original historical explanation</summary>
+      <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>{explanation ? "Original question-level explanation, recorded after submission under an earlier protocol." : "Original explanation for the full forecast batch, submitted with the numbers. It does not separately explain this catastrophe risk or its change."}</p>
+      <p style={{ whiteSpace: "pre-wrap" }}>{(explanation && explanation.rationale) || c.rationale}</p>
+      {explanation && explanation.weakest_link && <p><strong>Weakest assumption: </strong>{explanation.weakest_link}</p>}
+      <RationaleSources sources={(explanation && explanation.key_sources) || c.sources || []} />
+    </details>}
+    <details style={{ marginTop: 8 }}><summary style={{ cursor: "pointer" }}>Forecast provenance</summary>
       <p style={{ overflowWrap: "anywhere", color: "var(--ink-soft)" }}>Model: {c.modelId}<br />Elicited: {c.elicitedAt}<br />Run: {c.run}<br />Call: {id}<br />Instrument: {c.instrument}<br />Protocol: {c.protocol}<br />Prompt condition: {c.condition || "Not recorded"}<br />Scenario: unconditional</p>
+      {followup && <p style={{ overflowWrap: "anywhere", color: "var(--ink-soft)" }}>Explanation protocol: {followup.version}<br />Saved forecast hash: {followup.forecast_sha256}<br />Previous publication hash: {comparison.publication_sha256 || "Unavailable"}<br />Previous calls: {(comparison.call_ids || []).join(", ") || "Unavailable"}</p>}
       <a href="redlines-data.zip" download="airo-data.zip">Download original forecasts, explanations and logs</a>
     </details>
     <details style={{ marginTop: 8 }}><summary style={{ cursor: "pointer" }}>View full prompt</summary>
@@ -76,16 +106,18 @@ function RationaleExplanation({ id, call: c, qid }) {
         <p style={{ fontWeight: 600 }}>User prompt</p>
         <pre className="faq-pre">{prompt.user}</pre>
       </> : <p>Full prompt not recorded for this call.</p>}
+      {followup && <><p style={{ fontWeight: 600 }}>Follow-up prompt, sent after forecasts were locked</p><pre className="faq-pre">{followup.prompt}</pre></>}
     </details>
   </div>;
 }
 // `forecasts` supplies the chart's horizons and model roster, not its pooled
 // probabilities. The forecast row uses only archived calls for the chosen
 // prompt condition, question, and displayed date.
-function ForecastRationales({ qid, context, forecasts = [], date, controls }) {
+function ForecastRationales({ qid, context, forecasts = [], date }) {
   const [selectedCondition, setSelectedCondition] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedCall, setSelectedCall] = useState("");
+  if (!qid.startsWith("catastrophe:")) return null;
   const entries = RATIONALES.questions[qid] || {};
   const models = Object.keys(entries).filter(m => forecasts.some(f => (f.values || {})[m] != null));
   const allCalls = models.flatMap(model => (entries[model] || []).map(id => [id, RATIONALES.calls[id]]))
@@ -104,7 +136,6 @@ function ForecastRationales({ qid, context, forecasts = [], date, controls }) {
   const rows = rationaleConditionForecasts(qid, forecasts.map(f => f.key), calls);
   return <details style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line-soft)", fontSize: 13, lineHeight: 1.6 }}>
     <summary style={{ cursor: "pointer", fontWeight: 600, color: "var(--ink)" }}>Model rationale for its forecasts</summary>
-    {controls}
     <p style={{ margin: "10px 0", fontWeight: 600 }}>{context}</p>
     {!chosen ? <p>No explanation recorded for this forecast.</p> : <>
       <RationaleToggle label="Prompt condition" value={condition} onChange={setSelectedCondition}
@@ -122,31 +153,4 @@ function ForecastRationales({ qid, context, forecasts = [], date, controls }) {
       <RationaleExplanation key={`${qid}:${current[0]}`} id={current[0]} call={chosen} qid={qid} />
     </>}
   </details>;
-}
-// `causes`: [{key, label, rungs}], each cause's rungs from BOTH ladders (the
-// deaths questions, then the damages ones), keyed by question id.
-function LadderRationales({ causes, date }) {
-  const [causeKey, setCauseKey] = useState("ai");
-  const [qid, setQid] = useState(null);
-  const cause = causes.find(c => c.key === causeKey) || causes[0];
-  if (!cause) return null;
-  const rung = cause.rungs.find(r => r.qid === qid) || cause.rungs.find(r => r.rung === "1M") || cause.rungs[0];
-  if (!rung) return null;
-  // The same question on every horizon the ladder was elicited on, on
-  // whichever ladder it sits.
-  const forecasts = G2.horizons.map(h => {
-    let r = null;
-    Object.values((G2.byHorizon[h] || {}).legs || {}).some(side => {
-      const c = (side.causes || []).find(x => x.key === cause.key);
-      r = c && c.rungs.find(x => x.qid === rung.qid);
-      return !!r;
-    });
-    return { key: h, values: (r && r.per_model) || {} };
-  });
-  const controls = <div className="rationale-controls">
-    <label>Explain cause <select value={cause.key} onChange={e => setCauseKey(e.target.value)}>{causes.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select></label>
-    <label>Severity <select value={rung.qid} onChange={e => setQid(e.target.value)}>{cause.rungs.map(r => <option key={r.qid} value={r.qid}>{r.label}</option>)}</select></label>
-  </div>;
-  return <ForecastRationales qid={rung.qid} forecasts={forecasts} date={date} controls={controls}
-    context={`${cause.label} · ${rung.label}`} />;
 }

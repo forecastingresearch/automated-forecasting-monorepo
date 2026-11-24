@@ -87,7 +87,7 @@ def build(today=None):
         "prompt": prompt,
         # The tag the recorded prompt was sent under, else the one the next
         # run will carry.
-        "protocol": (recorded.get("protocol") if recorded else None) or ru.set_protocol(policies),
+        "protocol": (recorded.get("protocol") if recorded else None) or ru.set_protocol(policies, base),
         "conditionSet": ru.set_slug(policies),
         "nQuestions": n,
         "cells": cells,

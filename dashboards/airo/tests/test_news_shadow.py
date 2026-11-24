@@ -71,6 +71,8 @@ class Shadow(unittest.TestCase):
             if c["news_cache"]:
                 continue
             old = {k: c[k] for k in experiments.DEFAULTS if k not in experiments.UNHASHED and k not in ("news_cache", "max_turns", "prior_baseline", "prior_self", "recent_news", "search")}
+            if old["rationale_mode"] == "inline":
+                del old["rationale_mode"]
             self.assertEqual(experiments.condition_sha256(dict(c, search="tavily")),
                              hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest())
             self.assertNotEqual(c["sha256"], experiments.condition_sha256(dict(c, search="tavily")))

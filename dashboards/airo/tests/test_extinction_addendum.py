@@ -254,9 +254,9 @@ class TestTheTagMoved(unittest.TestCase):
         # v8 (2026-10-01, the pair unnamed), v7 (2026-09-16, the extinction
         # rung) and v6 (the pair); a log holding only v5 and v6 rows still
         # reads as v6 until a later run lands.
-        self.assertEqual(COMBINED_PROTOCOL, "unified-joint-combined-v12")
+        self.assertEqual(COMBINED_PROTOCOL, "unified-joint-combined-v13")
         self.assertEqual(protocol_line(COMBINED_PROTOCOL)[1:],
-                         ("unified-joint-combined-v11", "unified-joint-combined-v10", "unified-joint-combined-v9", "unified-joint-combined-v8",
+                         ("unified-joint-combined-v12", "unified-joint-combined-v11", "unified-joint-combined-v10", "unified-joint-combined-v9", "unified-joint-combined-v8",
                           "unified-joint-combined-v7", "unified-joint-combined-v6", "unified-joint-combined-v5",
                           "unified-joint-combined-v4", "unified-joint-combined-v3",
                           "unified-joint-combined-v2", "unified-joint-combined-v1"))

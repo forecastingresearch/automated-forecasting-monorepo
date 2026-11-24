@@ -154,7 +154,7 @@ def main():
             fs = r.get('forecasts') or []
             check_call(len(fs) == len(hs) and {f['horizon'] for f in fs} == hs,
                        'complete_horizons', ident, r, name)
-            check(r.get('protocol') == policies['protocol'], 'protocol', ident)
+            check(r.get('protocol') == ru.set_protocol(policies, c), 'protocol', ident)
             check(r.get('prompt_sha256') == shas.get(v), 'prompt_hash', ident)
             # Every row says what it ran under: the condition's settings (a
             # row from before the stamps existed carries none), whether it is

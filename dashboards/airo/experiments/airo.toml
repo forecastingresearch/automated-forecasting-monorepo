@@ -10,7 +10,8 @@
 # The settings below are every condition's unless its own table says otherwise.
 # A change to what a call is asked moves each affected condition's
 # condition_sha256 on its rows; when it changes the published number, bump the
-# scenario set's protocol tag too (code/make_combined_conditions.py PROTOCOL).
+# elicitation protocol too (run_unified.set_protocol). The scenario set retains
+# its original tag for unchanged private experiments.
 
 scenarios = "data/combined_conditions.json"
 # Since combined-v10 (2026-10-19): the MINIMAL instrument -- no system prompt,
@@ -18,6 +19,9 @@ scenarios = "data/combined_conditions.json"
 # (code/run_unified.py minimal_joint_prompt). The prompt-variant experiments of
 # 2026-10-14..19 found the instrument's guidance moved no headline forecast.
 instrument = "minimal"
+# v13: numbers first, then catastrophe level/change explanations. The two
+# non-pooled conditions below retain their original inline-rationale prompts.
+rationale_mode = "post-catastrophe-v1"
 # Agent-box's pi since combined-v9 (redlines/conditional.py PROTOCOL_LINEAGE).
 harness = "pi"
 publish = true
@@ -49,6 +53,7 @@ variant = "two-step"
 # (elsehow/airo#5). Its rows carry `pooled: false` and the guard; a failed
 # call does not fail the run (code/validate_launch_run.py).
 [conditions.ai-banned]
+rationale_mode = "inline"
 cadence = "manual"
 variant = "ai-banned"
 url_block_patterns = 'forecastingresearch\.org/pdf/airo,forecastingresearch\.org/research/airo,airo\.forecastingresearch\.org'
@@ -57,6 +62,7 @@ url_block_patterns = 'forecastingresearch\.org/pdf/airo,forecastingresearch\.org
 # Private output, never pooled. No forced-turn submission; ordinary service
 # timeouts remain. cron prepares one current news snapshot shared by the panel.
 [conditions.recent-shadow-noairo]
+rationale_mode = "inline"
 variant = "recent"
 news_cache = true
 publish = false

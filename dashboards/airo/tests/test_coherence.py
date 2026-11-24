@@ -71,7 +71,9 @@ class TestProtocolRegistry(unittest.TestCase):
     def test_combined_set_carries_the_registered_protocol(self):
         import json
         spec = json.loads((REPO / "data" / "combined_conditions.json").read_text())
-        self.assertEqual(spec["protocol"], COMBINED_PROTOCOL)
+        from test_conditional import _load_runner
+        from redlines.experiments import load, baseline
+        self.assertEqual(_load_runner().set_protocol(spec, baseline(load("airo"))), COMBINED_PROTOCOL)
         self.assertIn(COMBINED_PROTOCOL, PROTOCOLS)
 
 # The only surviving ceiling, and it is not a coherence standard. Half of all

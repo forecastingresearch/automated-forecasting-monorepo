@@ -46,6 +46,7 @@ def build():
     all_rows = load_runlog()
     rows = current_rows(complete_panel_rows(latest_instrument_rows(all_rows)))
     debriefs = {r['call_id']: r['debrief'] for r in all_rows if r.get('debrief')}
+    followups = {_call_id(r): r['post_forecast_rationale'] for r in all_rows if r.get('post_forecast_rationale')}
     recorded = {_call_id(r): r for r in all_rows if r.get('prompt')}
     calls, prompts, questions = {}, {}, defaultdict(lambda: defaultdict(list))
     for r in rows:
@@ -58,6 +59,8 @@ def build():
             'instrument': r.get('instrument_version'), 'protocol': r.get('protocol'),
             'rationale': r.get('rationale') or '', 'sources': r.get('key_sources') or [],
             'debriefs': debriefs.get(cid, {}),
+            'postForecast': followups.get(cid), 'rationaleMode': r.get('rationale_mode', 'inline'),
+            'resolvesOn': r.get('resolves_on'),
         })
         # Keep the original [0, 1] probabilities by call and question. The
         # rationale table can select one condition without borrowing a mean

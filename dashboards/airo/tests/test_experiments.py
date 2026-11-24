@@ -260,7 +260,7 @@ class TestMinimalPrompt(unittest.TestCase):
 class TestRunOneJoint(unittest.TestCase):
     """One call per variant through a fake loop: what the loop is given, and the rows."""
 
-    def _call(self, cid, answer_cells=True, **settings):
+    def _call(self, cid, answer_cells=True, followup_result=None, **settings):
         today = date(2026, 10, 19)
         pol = ru.load_policies(ru.COMBINED)
         g, b, h, _, spec = ru.load_batch(ru.LADDER, ru.CROSS, ru.UNBATCHED)
@@ -270,12 +270,17 @@ class TestRunOneJoint(unittest.TestCase):
         cond_ids = [c["id"] for c in rp["conditions"]]
 
         def fake(model, prompt, tools, final_tool, **kw):
-            seen.update(prompt=prompt, tools=tools, **kw)
+            seen.update(prompt=prompt, tools=tools, final_tool=final_tool, **kw)
+            if followup_result is not None:
+                kw["debrief"].update(followup_result)
             cells = [{"question_id": q["id"], "horizon": hz,
                       "probabilities": {k: 0.01 for k in ["unconditional"] + cond_ids}}
                      for gg in g for q in b[gg["key"]] for hz in h if hz in q["horizons"]] if answer_cells else []
-            return {"forecasts": cells, "rationale": "r",
-                    "eci_forecast": {"p10": 168, "p25": 170, "p50": 172, "p75": 175, "p90": 178}}, []
+            answer = {"forecasts": cells,
+                      "eci_forecast": {"p10": 168, "p25": 170, "p50": 172, "p75": 175, "p90": 178}}
+            if "rationale" in final_tool["parameters"]["properties"]:
+                answer["rationale"] = "r"
+            return answer, []
 
         orig = ru.call_tools
         ru.call_tools = fake
@@ -292,14 +297,14 @@ class TestRunOneJoint(unittest.TestCase):
         self.assertEqual(seen["system"], ru.MINIMAL_SYSTEM)
         self.assertEqual(seen["min_evidence"], 0)
         self.assertIsNone(seen["coverage"])
-        self.assertIsNone(seen["debrief"])
+        self.assertEqual(seen["debrief"]["tool"]["name"], "submit_catastrophe_explanations")
         self.assertEqual(seen["max_iters"], ru.MINIMAL_MAX_TURNS)
         self.assertIn(ru.VARIANTS["independent"], seen["prompt"])
         self.assertEqual({r["variant"] for r in rows}, {"independent"})
         self.assertEqual({(r["experiment"], r["condition"], r["condition_sha256"]) for r in rows},
                          {("airo", "independent", AIRO["conditions"]["independent"]["sha256"])})
         self.assertTrue(rows[0]["call_id"].endswith(":independent"))
-        self.assertEqual(rows[0]["protocol"], "unified-joint-combined-v12")   # the set's tag
+        self.assertEqual(rows[0]["protocol"], "unified-joint-combined-v13")
         self.assertEqual(rows[0]["system_prompt"], ru.MINIMAL_SYSTEM)
         self.assertTrue(all(r["forecasts"] for r in rows))
         # A pooled call: no guard reaches the loop, and the rows are as before.

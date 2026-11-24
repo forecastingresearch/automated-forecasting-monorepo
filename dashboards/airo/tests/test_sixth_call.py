@@ -123,7 +123,8 @@ class TestSixthCallLaunch(unittest.TestCase):
         self.assertEqual(len({r["call_id"] for r in sixth}), 4)
         self.assertTrue(all(r["pooled"] is False and r["url_block_patterns"] for r in sixth))
         self.assertFalse(any("pooled" in r or "url_block_patterns" in r for r in five))
-        self.assertEqual({r["protocol"] for r in self.rows}, {"unified-joint-combined-v12"})
+        self.assertEqual({r["protocol"] for r in five}, {"unified-joint-combined-v13"})
+        self.assertEqual({r["protocol"] for r in sixth}, {"unified-joint-combined-v12"})
 
     def test_the_validator_passes_the_full_day(self):
         rc, report, log = validate(self.results)

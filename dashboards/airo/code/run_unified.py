@@ -95,13 +95,14 @@ sys.path.insert(0, ROOT)
 from redlines.llm import load_keys, reasoning_for, research_coverage  # noqa: E402
 from redlines.pi_loop import call_tools  # noqa: E402
 from redlines.logs import run_file  # noqa: E402
-from redlines import experiments  # noqa: E402
+from redlines import experiments, rationale_followup  # noqa: E402
 from redlines.experiments import DEFAULT_VARIANT, VARIANTS, check_patterns  # noqa: E402
 from redlines.tools import FORECAST_TOOLS, BLOCK_ENV     # noqa: E402
 from fri_forecaster.tool_cli import DEFAULT_SEARCH, SEARCH_ENV, SEARCH_KEYS, search_name          # noqa: E402
 from redlines.registry import MODEL_SETS, panel_provenance  # noqa: E402
 from redlines.instrument import counting_windows  # noqa: E402
-from redlines.config import UNBATCHED                      # noqa: E402
+from redlines.config import (UNBATCHED, POST_FORECAST_PROTOCOL, CATASTROPHE_RATIONALE_QIDS,
+                             MIN_FORECAST_COVERAGE)  # noqa: E402
 from redlines.questions import (horizon_label, horizon_sort_key,  # noqa: E402
                                 resolves_on, severity_label)
 from fri_forecaster import baseline as _baseline  # noqa: E402  (on the path through redlines.eci)
@@ -443,7 +444,11 @@ def condition_prompt(prompt, condition):
         recent = VARIANTS["recent"]
         return out.replace(recent, recent + "\n\n" + NEWS_SENTENCE + "\n\n" + VARIANTS["ai-banned"], 1)
     if condition["instrument"] == "minimal":
-        return minimal_joint_prompt(prompt, condition["variant"])
+        out = minimal_joint_prompt(prompt, condition["variant"])
+        if rationale_followup.enabled(condition):
+            out = out.replace("a short rationale, the sources you used, and any cells not yet delivered.",
+                              "any cells not yet delivered.")
+        return out
     return apply_variant(prompt, condition["variant"])
 
 
@@ -489,7 +494,9 @@ def set_slug(policies):
     return policies.get("slug", "leap")
 
 
-def set_protocol(policies):
+def set_protocol(policies, condition=None):
+    if rationale_followup.enabled(condition or {}):
+        return POST_FORECAST_PROTOCOL
     return policies.get("protocol", PROTOCOL_JOINT)
 
 
@@ -838,7 +845,7 @@ def submit_cells_tool(qids, horizons, scenario_ids):
     }
 
 
-def submit_tool_joint(qids, horizons, scenario_ids, elicit=None):
+def submit_tool_joint(qids, horizons, scenario_ids, elicit=None, *, post_forecast=False):
     """The FINAL tool: rationale, sources, the elicited quantities, and any
     cells not delivered with submit_cells (`forecasts` is optional here since
     2026-09-02 evening; a call may still carry the whole grid). With `elicit`
@@ -871,6 +878,12 @@ def submit_tool_joint(qids, horizons, scenario_ids, elicit=None):
             "required": list(e["fields"]),
         }
     tool["parameters"]["required"] = [e["key"] for e in elicits] + tool["parameters"]["required"]
+    if post_forecast:
+        tool["description"] = "Submit your final forecasts and any cells not yet delivered with submit_cells."
+        for key in ("rationale", "key_sources"):
+            del tool["parameters"]["properties"][key]
+        tool["parameters"]["required"].remove("rationale")
+        tool["parameters"]["additionalProperties"] = False
     return tool
 
 
@@ -1009,6 +1022,11 @@ def debrief_state(groups, by_group):
                           "kwargs": {"questions": qs}}}
 
 
+# Validators load this entry point in the tool process so its source-root
+# bootstrap also works in a bare checkout, without installing the dashboard.
+validate_catastrophe_explanations = rationale_followup.validate_explanations
+
+
 def debrief_fields(state, first):
     """The two row fields, on the call's first row only."""
     if not first:
@@ -1022,8 +1040,9 @@ def debrief_fields(state, first):
 
 def debrief_note(rows):
     """For the log: how the debrief went, from the first row."""
-    st = (rows[0].get("debrief_status") if rows else None) or {}
-    if not st or st.get("attempts") is None:
+    st = ((rows[0].get("post_forecast_rationale") or {}).get("status")
+          or rows[0].get("debrief_status") if rows else None) or {}
+    if not st:
         return "no debrief"
     if st.get("complete"):
         return f"debrief ok ({st['attempts']} attempt(s))"
@@ -1148,6 +1167,36 @@ def clean_forecasts_joint(raw, allowed, horizons, scenario_ids):
     return out or None
 
 
+def check_forecast_submission(answer, allowed, horizons, scenario_ids, elicits):
+    """Clean a submission and check the shared completeness requirements.
+
+    Return grids, elicited quantities, received/expected counts, and problems.
+    Used both before locking forecasts and when the runner reads them back.
+    """
+    grids = clean_forecasts_joint(answer.get("forecasts"), allowed, horizons, scenario_ids) or {}
+    elicited = ({e["key"]: clean_elicit(answer.get(e["key"]), e) for e in elicits}
+                if elicits else None)
+    got = sum(len(v) for grid in grids.values() for v in grid.values())
+    want = sum(map(len, allowed.values())) * (1 + len(scenario_ids))
+    problems = []
+    if got < MIN_FORECAST_COVERAGE * want:
+        problems.append(f"Incomplete forecast grid: {got}/{want} probabilities.")
+    if elicited and not all(elicited.values()):
+        problems.append("Required elicited quantities are missing or invalid.")
+    return grids, elicited, got, want, problems
+
+
+def validate_before_explanation(answer, allowed, horizons, scenario_ids, elicits):
+    """Refuse an invalid final submission before revealing previous forecasts."""
+    grids, _, _, _, problems = check_forecast_submission(answer, allowed, horizons, scenario_ids, elicits)
+    for qid in CATASTROPHE_RATIONALE_QIDS:
+        if qid in allowed and {f["horizon"] for f in grids.get(UNCONDITIONAL_KEY, {}).get(qid, [])} != set(allowed[qid]):
+            problems.append(f"{qid}: all unconditional horizons are required before explaining them.")
+    if any(not 0 <= f["probability"] <= 1 for grid in grids.values() for fs in grid.values() for f in fs):
+        problems.append("Probabilities must be finite numbers between 0 and 1.")
+    return problems
+
+
 def research_tools(groups):
     """FORECAST_TOOLS with web_search's `cause` narrowed to this batch's
     question groups (an enum, required), and the coverage keys the loop
@@ -1177,6 +1226,7 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
     today = today or datetime.now(timezone.utc).date()
     variant = condition["variant"]
     minimal = condition["instrument"] == "minimal"
+    post_forecast = rationale_followup.enabled(condition)
     policies = resolve_set(policies, today)
     scenarios = [c for c in policies["conditions"] if c["id"] in {x["id"] for x in scenarios}]
     prompt, n, want_cells = build_prompt_joint(groups, by_group, horizons, spec,
@@ -1226,8 +1276,16 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
     qids = [q["id"] for g in groups for q in by_group[g["key"]]]
     allowed = {q["id"]: {h for h in horizons if h in q["horizons"]}
                for g in groups for q in by_group[g["key"]]}
-    want = want_cells * (len(scenarios) + 1)
     elicits = set_elicits(policies)
+    comparisons = {}
+    if post_forecast:
+        extra["rationale_mode"] = condition["rationale_mode"]
+        for q in debrief_questions(groups, by_group):
+            if q["id"] in CATASTROPHE_RATIONALE_QIDS:
+                comparisons[q["id"]] = rationale_followup.comparison(
+                    condition.get("_rationale_publication"), model=model_id, condition=condition,
+                    question=q, spec=spec, today=today,
+                    horizons=[h for h in horizons if h in q["horizons"]])
     grids, answer, evidence, attempts, elicited = None, {}, [], 0, None
     usage = {}   # the whole call's tokens and price, retries included
     # The grid arrives in pieces (submit_cells; redlines.pi_loop.call_tools
@@ -1258,10 +1316,18 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
         try:
             research, coverage = research_tools(groups)
             debrief = None if minimal else debrief_state(groups, by_group)
+            if post_forecast:
+                debrief = rationale_followup.state(debrief_questions(groups, by_group), comparisons,
+                                                    validator_file=os.path.abspath(__file__))
+                debrief["forecast_validator"] = {
+                    "file": os.path.abspath(__file__), "function": "validate_before_explanation",
+                    "kwargs": {"allowed": {q: sorted(hs) for q, hs in allowed.items()},
+                               "horizons": horizons, "scenario_ids": scenario_ids, "elicits": elicits}}
             if minimal:
                 research, coverage = minimal_tools(research), None
             answer, evidence = call_tools(
-                model_id, prompt, research, submit_tool_joint(qids, horizons, scenario_ids, elicits),
+                model_id, prompt, research, submit_tool_joint(qids, horizons, scenario_ids, elicits,
+                                                            post_forecast=post_forecast),
                 system=MINIMAL_SYSTEM if minimal else SYSTEM,
                 max_iters=(condition["max_turns"] if condition.get("max_turns") is not None
                            else MINIMAL_MAX_TURNS if minimal else MAX_ROUNDS),
@@ -1283,11 +1349,9 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
                 merged[(f["question_id"], f["horizon"])] = f
                 delivery["cells_in_final"] += 1
         answer["forecasts"] = list(merged.values())
-        grids = clean_forecasts_joint(answer.get("forecasts"), allowed, horizons, scenario_ids)
-        got = sum(len(v) for g in (grids or {}).values() for v in g.values())
-        elicited = ({e["key"]: clean_elicit(answer.get(e["key"]), e) for e in elicits}
-                    if elicits else None)
-        if grids and got >= 0.9 * want and (not elicits or all(elicited.values())):
+        grids, elicited, got, want, problems = check_forecast_submission(
+            answer, allowed, horizons, scenario_ids, elicits)
+        if grids and not problems:
             break
         print(f"  retry {label:16} attempt {attempts}: {got}/{want} cells x (unconditional + scenarios)"
               + "".join(f", {k} {'ok' if v else 'missing/unordered'}"
@@ -1338,7 +1402,8 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
                     "unread_sources": unread if first else None,
                     # The debrief turn's answer and how it went (call_tools
                     # `debrief`), on the call's first row like the evidence.
-                    **debrief_fields(debrief, first),
+                    **(debrief_fields(debrief, first) if not post_forecast else {
+                        "post_forecast_rationale": rationale_followup.record(debrief, answer) if first else None}),
                     "resolves_on": {h: resolves_on(h, today, spec) for h in horizons},
                     "run_date": today.isoformat(),
                     "instrument_version": spec.get("instrument_version"),
@@ -1346,7 +1411,7 @@ def run_one_joint(label, model_id, groups, by_group, horizons, run_id, retries, 
                     "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                     "prompt": prompt if first else None,
                     "system_prompt": (MINIMAL_SYSTEM if minimal else SYSTEM) if first else None,
-                    "protocol": set_protocol(policies),
+                    "protocol": set_protocol(policies, condition),
                     "scenario_set": set_slug(policies),
                     "call_id": call_id, "attempts": attempts,
                     "batch_size": len(qids),
@@ -1573,14 +1638,18 @@ def run(args, exp, conditions, path, publish):
     if args.dry_run:
         for c in conditions:
             p = condition_prompt(prompt, c)
-            print(f"##### {exp['name']} / {c['id']} [{slug}: {proto}; {condition_line(c)}]: "
+            print(f"##### {exp['name']} / {c['id']} [{slug}: {set_protocol(policies, c)}; {condition_line(c)}]: "
                   f"{n} questions, {cells} cells x (unconditional + {len(scenarios)} "
                   f"scenarios) = {cells * (len(scenarios) + 1)} probabilities, {len(p)} chars #####")
             print(p)
             print(f"##### URL GUARD ({BLOCK_ENV}): "
                   f"{c['url_block_patterns'] or os.environ.get(BLOCK_ENV) or 'off'} #####")
         return
+    publication = (rationale_followup.publication_snapshot(args.prior_publication)
+                   if any(rationale_followup.enabled(c) for c in conditions) else None)
     for c in conditions:
+        if rationale_followup.enabled(c):
+            c["_rationale_publication"] = publication
         if c.get("news_cache") or c.get("recent_news"):
             from redlines.news_shadow import pin
             if not args.news_snapshot:

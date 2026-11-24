@@ -76,8 +76,8 @@ function runPy(args: string[], input?: string) {
 }
 const py = (tool: string, args: any) => runPy([tool, JSON.stringify(args)]);
 // A debrief can outgrow one argv string (128 KB on Linux): it goes on stdin.
-const validated = (value: any): string[] =>
-  (runPy(["validate"], JSON.stringify({ ...debrief.validator, value })).problems || []).map(String);
+const validated = (value: any, validator = debrief.validator): string[] =>
+  (runPy(["validate"], JSON.stringify({ ...validator, value })).problems || []).map(String);
 
 // A refused call: the model reads `body` as the tool's result.
 function refuse(body: any) {
@@ -121,7 +121,7 @@ export default function (pi: ExtensionAPI) {
     const ok = r && !r.error;
     if (ok) research += 1; else researchFailed += 1;
     if (isSearch && params?.cause != null && params?.recent_days && (ok || countsAll)) covered.add(String(params.cause));
-    if (withholdFinal) offer();
+    if (withholdFinal && !finalDone) offer();
   }
 
   if (research_tools.includes("web_search")) pi.registerTool({
@@ -133,6 +133,7 @@ export default function (pi: ExtensionAPI) {
       recent_days: Type.Optional(Type.Integer({ minimum: 1 })),
     })),
     async execute(_id, params) {
+      if (finalDone) return refuse({ error: "Research is closed after the forecasts are locked." });
       const r = py("web_search", params);
       researched(params, r, true);
       return { content: [{ type: "text", text: cap(JSON.stringify(r)) }], details: r };
@@ -143,6 +144,7 @@ export default function (pi: ExtensionAPI) {
     description: spec.tools.read_page.description,
     parameters: paramsOf("read_page", Type.Object({ url: Type.String(), offset: Type.Optional(Type.Integer({ minimum: 0 })) })),
     async execute(_id, params) {
+      if (finalDone) return refuse({ error: "Research is closed after the forecasts are locked." });
       const r = py("read_page", params);
       researched(params, r, false);
       return { content: [{ type: "text", text: cap(JSON.stringify(r)) }], details: r };
@@ -153,6 +155,7 @@ export default function (pi: ExtensionAPI) {
     description: spec.tools.submit_cells.description,
     parameters: paramsOf("submit_cells", Type.Object({ forecasts: cells })),
     async execute(_id, params: any) {
+      if (finalDone) return refuse({ error: "Forecasts are locked; submit_cells cannot change them." });
       if (!unlocked()) return notYet("submit_cells");
       let n = 0;
       for (const f of params.forecasts || []) {
@@ -187,8 +190,18 @@ export default function (pi: ExtensionAPI) {
         finalWarned = true;
         return refuse({ error: "not submitted: fix and call submit_forecast again", unknown_keys: unknown, missing_keys: stillMissing });
       }
-      finalDone = true;
+      if (debrief?.forecast_validator) {
+        const merged = new Map(received);
+        for (const f of params.forecasts || []) if (allowed.has(keyOf(f))) merged.set(keyOf(f), f);
+        try {
+          const problems = validated({ ...params, forecasts: [...merged.values()] }, debrief.forecast_validator);
+          if (problems.length) return refuse({ error: "not submitted: fix and call submit_forecast again", problems });
+        } catch {
+          return refuse({ error: "Forecast validation failed; forecasts have not been accepted." });
+        }
+      }
       writeFileSync(`${OUT}/final.json`, JSON.stringify({ t: Date.now(), research, research_failed: researchFailed, forced: forcing, answer: params }, null, 1));
+      finalDone = true;
       const r = { ok: true, received: received.size, of: allowed.size, in_final: (params.forecasts || []).length };
       return { content: [{ type: "text", text: JSON.stringify(r) + (debrief ? "" : " Done: stop here.") }], details: r };
     },
@@ -220,9 +233,12 @@ export default function (pi: ExtensionAPI) {
       d.result = d.result && typeof d.result === "object" && args && typeof args === "object" ? { ...d.result, ...args } : args;
       try {
         d.problems = debrief.validator ? validated(d.result) : [];
-      } catch (e: any) {
-        d.problems = [];
-        d.error = `validator failed: ${String(e?.message || e).slice(0, 300)}`;
+        d.error = null;
+      } catch {
+        // This status is exported by dashboards; keep local paths and
+        // subprocess command details out of the public record.
+        d.error = "validator failed; explanation not accepted";
+        d.problems = [d.error];
       }
       d.complete = d.problems.length === 0;
       saveDebrief();

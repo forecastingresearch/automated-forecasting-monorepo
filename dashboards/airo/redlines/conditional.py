@@ -58,7 +58,7 @@ import random
 import statistics as st
 from collections import defaultdict
 
-from .config import REPO_ROOT
+from .config import REPO_ROOT, POST_FORECAST_PROTOCOL
 from .logs import iter_rows, log_files
 from .superseded import is_superseded
 
@@ -201,11 +201,10 @@ PROTOCOL_LINEAGE = {
 }
 
 
-# THE published instrument's tag today. data/combined_conditions.json carries
-# the same string (tests pin the two together); the views, the run log's
-# grounding line and the coherence test all read it from here, so a bump is
-# one edit plus the lineage entry above.
-COMBINED_PROTOCOL = "unified-joint-combined-v12"
+# v13 changes only the published conditions' rationale timing. The scenario
+# set keeps v12 for private experiments whose prompts have not changed.
+COMBINED_PROTOCOL = POST_FORECAST_PROTOCOL
+PROTOCOL_LINEAGE[COMBINED_PROTOCOL] = ("unified-joint-combined-v12", *PROTOCOL_LINEAGE["unified-joint-combined-v12"])
 # The first combined tag elicited by the agentic harness (iterative search +
 # page reads, 2026-09-02); v1 (2026-08-28) still ran the legacy grounding.
 AGENTIC_SINCE = "unified-joint-combined-v2"

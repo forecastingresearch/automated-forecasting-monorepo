@@ -81,3 +81,11 @@ CLIM_FREECIV_OBSERVED = 0.0458
 #     disjunctive threshold. They exist to line up with an existing human panel
 #     and are elicited separately, the way XPT #2 was.
 UNBATCHED = ()
+
+# Published catastrophe explanations: elicited only after submit_forecast.
+CATASTROPHE_RATIONALE_QIDS = ("catastrophe:ai", "catastrophe:general")
+POST_FORECAST_RATIONALE = "post-catastrophe-v1"
+POST_FORECAST_PROTOCOL = "unified-joint-combined-v13"
+RATIONALE_RETRIES = 2
+# Existing runner acceptance threshold, also checked before the follow-up.
+MIN_FORECAST_COVERAGE = 0.9

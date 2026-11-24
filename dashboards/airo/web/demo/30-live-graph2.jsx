@@ -387,9 +387,6 @@ function LiveGraph2Current({ onDefinitions }) {
         </details>
         {onDefinitions && <button className="linkbtn" onClick={onDefinitions} style={{ fontSize: 12, marginTop: 6 }}>Definitions and full severity ladder →</button>}
         <IssuesPanel viol={viol} declines={all.declines || {}} />
-        <LadderRationales causes={causes.map(c => ({ key: c.key, label: c.label,
-          rungs: sides.flatMap(s => (all.legs[s.leg.key].causes.find(x => x.key === c.key) || {}).rungs || []) }))}
-          date={G2.instrumentInfo.runDate} />
       </div>
     </Panel>
   );

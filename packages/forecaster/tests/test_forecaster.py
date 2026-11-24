@@ -2,6 +2,7 @@
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -54,6 +55,22 @@ DESC = {"web_search": "s", "read_page": "r", "submit_cells": "c", "submit_foreca
 
 
 class HarnessTest(unittest.TestCase):
+    def test_timeout_after_final_retains_saved_forecast_without_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def timeout_after_final(*args, **kwargs):
+                with open(os.path.join(kwargs["env"]["FORECASTER_OUT"], "final.json"), "w") as file:
+                    json.dump({"answer": {"forecasts": [{"k": "a", "probability": 0.12}]}}, file)
+                raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+            with unittest.mock.patch.object(harness.subprocess, "run", side_effect=timeout_after_final) as run:
+                result = harness.run(model="m/x", system="S", prompt="P", workdir=folder,
+                                     cell_schema=SCHEMA, key_fields=["k"], allowed_keys=["a"],
+                                     tool_descriptions=DESC, pi=fake_pi(folder))
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(result["rc"], "timeout")
+            self.assertEqual(result["cells"]["a"]["probability"], 0.12)
+            self.assertTrue(result["answer"])
+
     def test_run_merges_pieces_and_final(self):
         with tempfile.TemporaryDirectory() as d:
             res = harness.run(model="m/x", system="S", prompt="P", workdir=os.path.join(d, "w"),

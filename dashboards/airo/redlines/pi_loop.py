@@ -70,6 +70,7 @@ def call_tools(model, prompt, tools, final_tool, *, max_iters=6, system=None,
     if debrief:
         loop["debrief"] = {"tool": {k: debrief["tool"][k] for k in ("name", "description", "parameters")},
                            "prompt": debrief["prompt"], "retries": int(debrief.get("retries", 1)),
+                           **({"forecast_validator": debrief["forecast_validator"]} if debrief.get("forecast_validator") else {}),
                            **({"validator": debrief["validator"]} if debrief.get("validator") else {})}
     thinking = reasoning_for(model) or "off"
     # pi writes its working directory into the system prompt; run from the
@@ -104,6 +105,8 @@ def call_tools(model, prompt, tools, final_tool, *, max_iters=6, system=None,
                 partial_tool["fn"](forecasts=json.loads(line).get("forecasts"))
     if debrief is not None and res.get("debrief") is not None:
         debrief.update({k: res["debrief"].get(k) for k in ("result", "complete", "attempts", "problems", "error")})
+    if debrief is not None and not debrief.get("complete") and res["answer"]:
+        debrief["error"] = debrief.get("error") or f"Explanation incomplete (pi exit {res['rc']}); forecasts retained."
     if not res["answer"]:
         limit = f"within {max_iters + 2} turns" if max_iters else "before the run ended (no forced-turn cap)"
         raise RuntimeError(f"{final_tool['name']} not called {limit} (pi exit "

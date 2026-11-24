@@ -890,7 +890,8 @@ class TestGroupedSetOnTheTabs(unittest.TestCase):
                 self.assertEqual(view["questions"], [])
                 self.assertEqual(view["models"], [])
                 self.assertFalse(view["instrumentInfo"]["available"])
-                self.assertEqual(view["protocol"], "unified-joint-combined-v12")
+                from redlines.conditional import COMBINED_PROTOCOL
+                self.assertEqual(view["protocol"], COMBINED_PROTOCOL)
             return
         # Separate provider retries may have distinct run IDs but share the
         # single explicitly recorded elicitation date and incident windows.

@@ -110,7 +110,7 @@
     "2050"
   ],
   "defaultHorizon": "2030",
-  "protocol": "unified-joint-combined-v12",
+  "protocol": "unified-joint-combined-v13",
   "instrument": {
     "log": "results/conditional_runs_combined.jsonl",
     "set": "data/combined_conditions.json",

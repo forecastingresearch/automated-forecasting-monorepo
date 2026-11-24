@@ -74,9 +74,11 @@ class ScriptedModel:
         elif isinstance(turn, str):
             delta, finish = {"role": "assistant", "content": turn}, "stop"
         else:
-            name, args = turn
-            delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": f"call_{n}", "type": "function",
-                                                           "function": {"name": name, "arguments": json.dumps(args)}}]}
+            calls = turn if isinstance(turn, list) else [turn]
+            delta = {"role": "assistant", "tool_calls": [
+                {"index": i, "id": f"call_{n}_{i}", "type": "function",
+                 "function": {"name": name, "arguments": json.dumps(args)}}
+                for i, (name, args) in enumerate(calls)]}
             finish = "tool_calls"
         yield dict(base, choices=[{"index": 0, "delta": delta, "finish_reason": None}])
         yield dict(base, choices=[{"index": 0, "delta": {}, "finish_reason": finish}])
@@ -234,6 +236,72 @@ SEARCH_WITH_CAUSE = {"type": "object", "required": ["query", "cause"],
 @NEEDS_PI
 class LoopOptionsTest(PiCase):
     """The loop options AIRO's runner sets (pi_tools.ts header)."""
+
+    def explanation_spec(self, **extra):
+        return {"tool": {"name": "submit_debrief", "description": "Explain the saved numbers.",
+                         "parameters": {"type": "object", "properties": {"a": {"type": "string"}}}},
+                "prompt": "Previous published probability was 0.23. Explain the change.",
+                "retries": 4, **extra}
+
+    def test_numbers_locked_and_previous_forecast_only_visible_after_final(self):
+        res, model = self.run_pi([
+            ("submit_forecast", {"forecasts": [{"k": "a", "probability": 0.1}, {"k": "b", "probability": 0.2}], "rationale": "r"}),
+            ("submit_cells", {"forecasts": [{"k": "a", "probability": 0.99}]}),
+            ("submit_forecast", {"forecasts": [{"k": "b", "probability": 0.99}], "rationale": "changed"}),
+            ("web_search", {"query": "new evidence"}),
+            ("submit_debrief", {"a": "Reason for the locked values."}),
+            "done",
+        ], min_research=0, withhold_final=True, debrief=self.explanation_spec())
+        self.assertNotIn("0.23", json.dumps(model.requests[0]))
+        self.assertIn("0.23", model.last_user(2))
+        for n in range(2, 6):
+            self.assertEqual(model.tools(n), {"submit_debrief"})
+        self.assertEqual({k: v["probability"] for k, v in res["cells"].items()}, {"a": 0.1, "b": 0.2})
+        self.assertEqual(res["answer"]["rationale"], "r")
+        self.assertTrue(res["debrief"]["complete"])
+        self.assertIn("not found", model.tool_result(5))  # pi removes the tool before executing it
+        self.assertTrue(all(not e["result"] for e in res["evidence"]))
+        self.assertFalse(os.path.exists(os.path.join(res["workdir"], "pieces.jsonl")))
+
+    def test_same_turn_late_piece_cannot_overwrite_locked_forecast(self):
+        res, model = self.run_pi([
+            [("submit_cells", {"forecasts": [{"k": "a", "probability": 0.1}]}),
+             ("submit_forecast", {"forecasts": [{"k": "b", "probability": 0.2}], "rationale": "r"}),
+             ("submit_cells", {"forecasts": [{"k": "a", "probability": 0.99}]})],
+            ("submit_debrief", {"a": "Reason."}), "done",
+        ], min_research=0, debrief=self.explanation_spec())
+        self.assertEqual({k: v["probability"] for k, v in res["cells"].items()}, {"a": 0.1, "b": 0.2})
+        self.assertIn("locked", model.tool_result(2))
+
+    def test_invalid_forecast_cannot_unlock_previous_context(self):
+        validator = os.path.join(self.tmp.name, "validator.py")
+        with open(validator, "w") as file:
+            file.write("def check(value):\n    return ['invalid forecast'] if value['forecasts'][0]['probability'] > 0.5 else []\n")
+        res, model = self.run_pi([
+            ("submit_forecast", {"forecasts": [{"k": "a", "probability": 0.9}], "rationale": "r"}),
+            ("submit_forecast", {"forecasts": [{"k": "a", "probability": 0.1}], "rationale": "r"}),
+            ("submit_debrief", {"a": "Reason."}), "done",
+        ], min_research=0, warn_missing_keys=False, debrief=self.explanation_spec(
+            forecast_validator={"file": validator, "function": "check"}))
+        self.assertNotIn("0.23", json.dumps(model.requests[:2]))
+        self.assertIn("invalid forecast", model.tool_result(2))
+        self.assertIn("0.23", model.last_user(3))
+        self.assertEqual(res["cells"]["a"]["probability"], 0.1)
+
+    def test_explanation_validation_error_does_not_lose_or_rerun_forecast(self):
+        validator = os.path.join(self.tmp.name, "validator.py")
+        with open(validator, "w") as file:
+            file.write("def check(value):\n    raise ValueError('simulated failure')\n")
+        res, model = self.run_pi([
+            ("submit_forecast", {"forecasts": [{"k": "a", "probability": 0.1}], "rationale": "r"}),
+            ("submit_debrief", {"a": "Reason."}), "done",
+        ], min_research=0, warn_missing_keys=False, debrief=self.explanation_spec(
+            retries=0, validator={"file": validator, "function": "check"}))
+        self.assertEqual(res["cells"]["a"]["probability"], 0.1)
+        self.assertFalse(res["debrief"]["complete"])
+        self.assertEqual(res["debrief"]["attempts"], 1)
+        self.assertTrue(res["debrief"]["problems"])
+        self.assertIn("validator failed", res["debrief"]["error"])
 
     def test_withheld_until_every_call_and_group_counts(self):
         res, model = self.run_pi([
