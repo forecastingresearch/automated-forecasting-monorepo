@@ -2065,6 +2065,213 @@ function SeverityLadder({ latestByKey, selKey }) {
   );
 }
 
+// Public aggregate benchmark results; raw responses remain in the private run archive.
+// See docs/graph5-extension.md for instrument and provenance.
+const OBSERVATIONAL_EXTENSION = [
+  {
+    "id": "anthropic/claude-fable-5-2",
+    "label": "Fable 5.2",
+    "eci": 173.4,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.00035000000000001696,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.009000000000000008,
+    "pass": true,
+    "rho": 0.8852
+  },
+  {
+    "id": "openai/gpt-6.2-astra",
+    "label": "GPT-6.2 Astra",
+    "eci": 172.82,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9091
+  },
+  {
+    "id": "google/gemini-4-carbon",
+    "label": "Gemini 4 Carbon",
+    "eci": 169.68,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9173
+  },
+  {
+    "id": "openai/gpt-6-astra",
+    "label": "GPT-6 Astra",
+    "eci": 169.21,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9206
+  },
+  {
+    "id": "anthropic/claude-opus-5-5",
+    "label": "Opus 5.5",
+    "eci": 168.67,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0010000000000000009,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0049999999999999906,
+    "pass": true,
+    "rho": 0.8899
+  },
+  {
+    "id": "openai/gpt-6.1-sol",
+    "label": "GPT-6.1 Sol",
+    "eci": 168.61,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9179
+  },
+  {
+    "id": "openai/gpt-6.1-terra",
+    "label": "GPT-6.1 Terra",
+    "eci": 167.71,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9033
+  },
+  {
+    "id": "anthropic/claude-fable-5-1",
+    "label": "Fable 5.1",
+    "eci": 167.06,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0010000000000000009,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.007499999999999979,
+    "pass": true,
+    "rho": 0.872
+  },
+  {
+    "id": "google/gemini-4-hydrogen",
+    "label": "Gemini 4 Hydrogen",
+    "eci": 166.81,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.9049
+  },
+  {
+    "id": "anthropic/claude-sonnet-5-5",
+    "label": "Sonnet 5.5",
+    "eci": 166.6,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 0.0015000000000000013,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.015000000000000013,
+    "pass": true,
+    "rho": 0.8791
+  },
+  {
+    "id": "google/gemini-4-argon",
+    "label": "Gemini 4 Argon",
+    "eci": 166.53,
+    "eciSource": "epoch_capabilities_index_2026-11-22.csv",
+    "responses": 135,
+    "pairsScored": 21,
+    "coherence": 1.2999999999985246e-05,
+    "direction": {
+      "k": 13,
+      "n": 13,
+      "p": 0.0001
+    },
+    "controlShift": 0.0,
+    "pass": true,
+    "rho": 0.8915
+  }
+];
+
+function observationalDisplayData(base) {
+  if (!base) return null;
+  const byId = new Map(base.models.map(m => [m.id, m]));
+  // A later data publication may already contain these models.
+  for (const model of OBSERVATIONAL_EXTENSION) {
+    if (!byId.has(model.id)) byId.set(model.id, model);
+  }
+  const models = [...byId.values()].map(m => ({
+    ...m, inPanel: false,
+    color: m.rho >= base.noise.lo && m.rho <= base.noise.hi ? "#0969da" : "#91989f",
+  })).sort((a, b) => a.eci - b.eci);
+  const best = models.reduce((a, b) => b.rho > a.rho ? b : a);
+  return {...base, models, best, nPass: models.filter(m => m.pass).length,
+    nWithinNoise: models.filter(m => m.rho >= base.noise.lo && m.rho <= base.noise.hi).length};
+}
 /* ============================ conditional benches (FAQ tab, was "Why trust this?": Graphs 5 and 6) ============================ */
 // Two skill-vs-capability charts on the same x-axis (the ECI roster of
 // data/causal/models.csv; redlines/roster.py): the observational conditional
@@ -2072,7 +2279,7 @@ function SeverityLadder({ latestByKey, selKey }) {
 // bench (redlines/views/causal.py). Each dot is one model; the dashboard's own
 // panel is drawn in its own colours (gray for the rest) and always labelled, the rest of the
 // roster in grey with the ends of the range labelled and everything on hover.
-const OBS = (typeof window !== "undefined" && window.__OBSERVATIONAL__) || null;
+const OBS = observationalDisplayData((typeof window !== "undefined" && window.__OBSERVATIONAL__) || null);
 const CAUSAL = (typeof window !== "undefined" && window.__CAUSAL__) || null;
 
 // A tie-aware rank correlation, mirroring redlines/stats.py::spearman_ties
@@ -2108,7 +2315,7 @@ const fmtSigned = v => (v == null ? "n/a" : (v >= 0 ? "+" : "−") + Math.abs(v)
 // band (the noise ceiling); `refs` = [{y, label, color}] draws dashed
 // reference lines (climatology / the simulator's own distribution). `tip(pt)`
 // returns tooltip HTML.
-function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs, tip }) {
+function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs, tip, legend }) {
   const ref = React.useRef(null);
   React.useEffect(() => {
     if (!window.tippy || !ref.current) return;
@@ -2224,11 +2431,10 @@ function BenchScatter({ points, yKey, yDomain, yTicks, yLabel, yFmt, band, refs,
         <text x={-H / 2} y={13} transform="rotate(-90)" textAnchor="middle" fontSize="10.5" fill="var(--ink-soft)">{yLabel}</text>
       </svg>
       <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-        {/* Panel members in their own colours, the same as on every other
-            chart; the rest of the roster in the one retired gray. Both come
-            from the blob (redlines/roster.py; Nick, 2026-09-08). */}
-        {drawn.filter(p => p.inPanel).map(p => <LegendDot key={p.id || p.label} color={p.color} label={p.label + " (panel)"} />)}
-        <LegendDot color={(drawn.find(p => !p.inPanel) || {}).color || "var(--ink-faint)"} label="Other models on the ECI roster (hover for names)" />
+        {legend !== undefined ? legend : <>
+          {drawn.filter(p => p.inPanel).map(p => <LegendDot key={p.id || p.label} color={p.color} label={p.label + " (panel)"} />)}
+          <LegendDot color={(drawn.find(p => !p.inPanel) || {}).color || "var(--ink-faint)"} label="Other models on the ECI roster (hover for names)" />
+        </>}
       </div>
     </div>
   );
@@ -2242,7 +2448,7 @@ function ObservationalPanel({ embedded }) {
     + `<strong>${p.label}</strong> &nbsp;<span style="color:#888">ECI ${p.eci.toFixed(0)}</span><br>`
     + `Rank ρ, implied vs measured: <strong>${fmtSigned(p.rho)}</strong> (${p.pairsScored} pairs)<br>`
     + `<span style="color:#888">direction ${p.direction.k}/${p.direction.n} · control shift ${p.controlShift == null ? "n/a" : p.controlShift.toFixed(3)} `
-    + `${p.pass ? "✓ passes" : "✕ fails"} the ${d.bar} bar · coherence ε ${p.coherence.toFixed(3)}</span>`
+    + `· coherence ε ${p.coherence.toFixed(3)}</span>`
     + `<br><span style="color:#888">${p.responses} responses</span></div>`;
   const runDate = Array.isArray(d.run.due) ? d.run.due.join(", ") : d.run.due;
   // The axis starts at 0.5 when every model clears it (the four-model run
@@ -2264,12 +2470,11 @@ function ObservationalPanel({ embedded }) {
         yLabel="Rank ρ, implied vs measured association"
         band={{ lo: d.noise.lo, hi: d.noise.hi, line: d.noise.ceiling,
           label: `noise ceiling ${d.noise.ceiling.toFixed(2)} [${d.noise.lo.toFixed(2)}–${d.noise.hi.toFixed(2)}]` }}
+        legend={<><LegendDot color="#0969da" label="Within noise-ceiling band" /><LegendDot color="#91989f" label="Outside noise-ceiling band" /></>}
         tip={tip} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line-soft)" }}>
-        <Stat label={`Capability ↔ skill (ρ), ${pts.length} models`} value={fmtSigned(rho)} color="var(--model)" />
-        <Stat label={`Best — ${d.best.label}`} value={fmtSigned(d.best.rho)} color="var(--dash)" />
-        <Stat label="Pass the pre-registered bar" value={`${d.nPass} of ${pts.length}`} color="var(--ink)" />
-        <Stat label="Noise ceiling" value={d.noise.ceiling.toFixed(2)} color="var(--ink-soft)" />
+        <Stat label={`Capability ↔ skill (ρ), ${pts.length} models`} value={fmtSigned(rho)} color="var(--ink)" />
+        <Stat label="Within noise-ceiling band" value={`${d.nWithinNoise} of ${pts.length}`} color="var(--ink)" />
       </div>
     </FigFrame>
   );
