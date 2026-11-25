@@ -190,6 +190,11 @@ function CapabilityPanel({ onDefinitions }) {
   const hz = q.horizons.includes(horizon) ? horizon : q.horizons[0];
   const cell = q.byHorizon[hz];
   const eci = CAP.eci;
+  const trendStatus = eci.trend.freshness || {};
+  const trendAge = (Date.now() - Date.parse((trendStatus.snapshotDate || eci.trend.dataDate) + "T00:00:00Z")) / 86400000;
+  const trendStale = !Number.isFinite(trendAge) || trendAge > (trendStatus.maxAgeDays || 7)
+    || (trendStatus.problems || []).length > 0;
+
 
   return (
     <React.Fragment>
@@ -217,7 +222,7 @@ function CapabilityPanel({ onDefinitions }) {
           <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 2, background: "var(--ink)" }}></span>Frontier ECI (Epoch {eci.csvDate})</span>
           <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--ink)" fillOpacity="0.14" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" /><line x1="1.5" x2="12.5" y1="9" y2="9" stroke="var(--ink)" strokeWidth="2.5" /></svg>Ensemble's ECI percentiles</span>
           {CAP && CAP.leap && <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--panel)" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" strokeDasharray="3 2" /><path d="M7,5L11,9L7,13L3,9Z" fill="var(--ink)" /></svg><span>LEAP supers (<a href={CAP.leap.url}>Wave 5</a>)</span></span>}
-          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>, {eci.trend.dataDate})</span></span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>, {eci.trend.dataDate}){trendStale && <strong title={(trendStatus.problems || []).join("; ") || "Projection data is more than seven days old"}> · Stale / awaiting refresh</strong>}</span></span>
         </div>
       </Panel>
 

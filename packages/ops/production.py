@@ -40,11 +40,12 @@ LAUNCHER = 'code/production.py'
 
 REQUIRED_CHECKS = {'test (py3.11)', 'test (py3.12)', 'test (py3.13)', 'reproduce'}
 GENERATED_DATA = ('epoch_capabilities_index_*.csv', 'auto_models.json',
-                  'eci_self_conditions.json', 'eci_self6mo_conditions.json', 'combined_conditions.json')
+                  'eci_self_conditions.json', 'eci_self6mo_conditions.json', 'combined_conditions.json',
+                  'eci_trend_current.json', 'eci_trend_status.json')
 
 
 # What a job kind's alerts are filed under (fri_forecaster.alert's `deployment`).
-DEPLOYMENT = {'forecast': 'airo', 'news-poll': 'airo', 'forecastbench': 'forecastbench', 'smoke': 'scheduler'}
+DEPLOYMENT = {'forecast': 'airo', 'news-poll': 'airo', 'eci-upstream': 'airo', 'forecastbench': 'forecastbench', 'smoke': 'scheduler'}
 
 DATA_FILES = AIRO_FILES
 
@@ -119,7 +120,7 @@ def validate_jobs(jobs):
             raise ValueError('Unknown dashboard or unsupported dashboard job')
         if job['kind'] == 'refresh' and not DASHBOARDS[owner].refresh:
             raise ValueError(f'{owner} has no registered refresh command')
-        if job['kind'] not in ('forecast', 'forecastbench', 'news-poll', 'refresh', 'smoke'):
+        if job['kind'] not in ('forecast', 'forecastbench', 'news-poll', 'eci-upstream', 'refresh', 'smoke'):
             raise ValueError('Unknown job kind')
         schedules = sum(k in job for k in ('at', 'daily_utc', 'weekly_utc'))
         if schedules == 0 and job['kind'] == 'refresh':
@@ -398,8 +399,8 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
         try:
             code = self.current.resolve(strict=True) / 'code'
             env = self.environment(code, self.root / 'tmp')
-            news = job['kind'] == 'news-poll'
-            if news and title == 'run FAILED':
+            news = job['kind'] in ('news-poll', 'eci-upstream')
+            if job['kind'] == 'news-poll' and title == 'run FAILED':
                 title = 'news fetch failed'
             argv = [code / '.venv/bin/python', '-m', 'fri_forecaster.alert', 'send', '--deployment', (self.name if job['kind'] in ('forecast', 'refresh') else DEPLOYMENT[job['kind']]),
                     '--severity', 'notice' if news else 'page', '--title', title,
@@ -557,12 +558,12 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
                     p.unlink()
                     p.symlink_to(dest)
 
-    def save_generated_data(self, code):
+    def save_generated_data(self, code, patterns=GENERATED_DATA):
         if self.name != 'airo':
             return
         # Epoch may create a new dated snapshot, or a writer may replace a symlink.
         with self.panel_data_lock():
-            for pattern in GENERATED_DATA:
+            for pattern in patterns:
                 for p in (code / AIRO / 'data').glob(pattern):
                     if p.is_file() and not p.is_symlink():
                         dest = self.state / 'data' / p.name
@@ -823,6 +824,13 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
         with self.lock() if concurrent else nullcontext():
             if concurrent:
                 self.require_publication_base(prior_release, prior_site)
+            if publish_data and self.name == 'airo':
+                # The rebuilt curve/status supersede the old cache; attach_state
+                # normally seeds only missing files and would restore stale ones.
+                for filename in ('eci_trend_current.json', 'eci_trend_status.json'):
+                    source = code / AIRO / 'data' / filename
+                    if source.is_file():
+                        write_json(self.state / 'data' / filename, json.loads(source.read_text()))
             self.attach_state(code)
             receipt = self.activate(release, verify=True) if wait else self.activate(release)
             try:
@@ -998,6 +1006,7 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
             argv = {'refresh': [code / '.venv/bin/python', *self.dashboard.refresh],
                     'forecast': ['bash', airo / 'code/cron_run.sh'],
                     'news-poll': [code / '.venv/bin/python', airo / 'code/recent_news.py', 'poll'],
+                    'eci-upstream': [code / '.venv/bin/python', '-m', 'redlines.eci_trend', '--check-only'],
                     'forecastbench': ['bash', code / FORECASTBENCH / 'scripts/fb_cron.sh', job.get('due', '')],
                     'smoke': [code / '.venv/bin/python', '-c', 'import redlines, eeai, forecastbench, fri_forecaster, dashboard; print("scheduled runtime smoke passed")']}.get(job['kind'])
             if job['kind'] == 'smoke' and self.name != 'airo':
@@ -1101,9 +1110,12 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
                 raise
             finally:
                 try:
-                    if launched and self.name == 'airo' and job['kind'] in ('forecast', 'forecastbench'):
+                    if launched and self.name == 'airo' and job['kind'] in ('forecast', 'forecastbench', 'eci-upstream'):
                         with self.lock():
-                            self.save_generated_data(code)
+                            if job['kind'] == 'eci-upstream':
+                                self.save_generated_data(code, patterns=('eci_trend_status.json',))
+                            else:
+                                self.save_generated_data(code)
                 finally:
                     started['finished'] = datetime.now(timezone.utc).isoformat()
                     write_json(receipt, started)

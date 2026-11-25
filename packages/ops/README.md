@@ -299,3 +299,31 @@ configured free-space floor. Deployments still reserve their code and data copie
 progress and verified delivery receipts while a round is running. The scheduler
 requires a matching receipt for every registered submission before recording a
 successful ForecastBench job.
+
+### ECI reference projection
+
+`eci-upstream` checks Peter Wildeford's upstream repository daily at 11:30 UTC.
+It compares the projection source with the reviewed SHA-256 pinned in
+`redlines/eci_trend.py`; data-only commits do not require approval, but source
+changes trigger a notice and require review. No upstream Python is executed.
+
+Every AIRO **data publication** calls `python -m redlines.eci_trend` after
+instrument validation and before building the site. This includes scheduled
+publications and `airo deploy --publish-data`, regardless of weekday or time.
+Changing the forecast schedule requires no change to this hook. Frontend-only
+deployments and republication of an existing snapshot preserve that snapshot.
+
+The calculation follows upstream commit
+`b436a09c09c951b36df1f74ce4db0bed4900523e` (two-segment piecewise-linear fit,
+lognormal pace with split 80% interval, normal position uncertainty), restricted
+to released US models to match AIRO's question. It uses the latest Epoch snapshot,
+one frontier point per release date, and deterministic Monte Carlo draws.
+`data/eci_trend_current.json` and `eci_trend_status.json` persist in runtime state.
+Refresh/check failures retain the last good curve, send a deduplicated notice,
+and mark the next publication stale. The browser also marks a projection more
+than seven days old stale, even if publication has stopped. Instrument-integrity
+failures still block publication entirely.
+
+To approve an upstream change, review the pinned source against the new source,
+update the independent calculation and its tests if necessary, then update both
+`COMMIT` and `SOURCE_SHA256` in `eci_trend.py` through normal PR/check/deploy.

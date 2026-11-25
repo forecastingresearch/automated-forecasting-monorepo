@@ -57,7 +57,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_running_job_per_lane ON jobs (lane)
 
 
 def lane_for(job):
-    return 'refresh' if job['kind'] in ('news-poll', 'refresh') else 'forecast'
+    return 'refresh' if job['kind'] in ('news-poll', 'eci-upstream', 'refresh') else 'forecast'
 
 
 def latest_start(job, scheduled):
