@@ -16,16 +16,101 @@ import hashlib
 import importlib.util
 import json
 import math
+import re
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from redlines import experiments
+from redlines import eci, experiments
 from redlines.instrument import CURRENT_INSTRUMENT, counting_windows
 from redlines.logs import iter_rows, log_files
-from redlines.registry import published_panel
+from redlines.registry import panel as select_panel
 from redlines.superseded import is_superseded
+
+
+def historical_inputs(rows, policies, conditions, run_day):
+    """Reconstruct dated inputs; saved hashes remain checks, never substitutes.
+
+    The current instrument is still rendered and compared byte-for-byte with
+    retained prompts. Unsupported historical changes fail closed. Search is
+    the only condition setting recovered by enumeration, using its exact hash.
+    """
+    stamps = {(r.get('panel', {}) or {}).get('snapshot') for r in rows}
+    sizes = {(r.get('panel', {}) or {}).get('k') for r in rows}
+    sets = {(r.get('panel', {}) or {}).get('set') for r in rows}
+    if len(stamps) != 1 or None in stamps or len(sizes) != 1 or sets != {'eci_topk'}:
+        raise ValueError('Missing, mixed or unsupported recorded panel provenance')
+    day = date.fromisoformat(stamps.pop())
+    k = sizes.pop()
+    if type(k) is not int or not 1 <= k <= 100 or day > run_day:
+        raise ValueError('Invalid recorded panel size or snapshot date')
+    snapshot = eci.snapshot_path(day)
+    if not snapshot.is_file():
+        raise ValueError(f'Missing recorded Epoch snapshot: {snapshot.name}')
+    members = select_panel(k, (day, snapshot))
+    if len(members) != k:
+        raise ValueError('Recorded panel cannot be reconstructed completely')
+    labels = {m['label'] for m, _ in members}
+
+    # Regenerate the moving ECI input in memory, without overwriting today's
+    # scenario files or changing any recorded forecast/prompt.
+    if policies.get('slug') in ('combined', 'eciself', 'eciself6mo'):
+        import make_eci_self_conditions as ecs
+        months = None if policies['slug'] == 'eciself' else 6
+        # The panel index and prompt history can have different vintages in
+        # older runs. Read the explicitly dated Epoch source in each retained
+        # prompt, then independently rebuild it from the archived CSV.
+        prompt_days = set()
+        for row in rows:
+            if row.get('prompt'):
+                found = re.findall(r'All scores here are on the scale as published by Epoch on (\d{4}-\d{2}-\d{2})\.', row['prompt'])
+                if len(found) != 1:
+                    raise ValueError('Missing or ambiguous Epoch date in retained prompt')
+                prompt_days.add(found[0])
+        if len(prompt_days) != 1:
+            raise ValueError('Missing or mixed Epoch prompt snapshots')
+        prompt_day = date.fromisoformat(prompt_days.pop())
+        prompt_snapshot = eci.snapshot_path(prompt_day)
+        if prompt_day > run_day or not prompt_snapshot.is_file():
+            raise ValueError('Missing or future recorded Epoch prompt snapshot')
+        cap = ecs.build(months=months, snapshot=(prompt_day, prompt_snapshot))
+        if policies['slug'] == 'combined':
+            import make_combined_conditions as combined
+            historical = combined.build(capability=cap)
+        else:
+            historical = cap
+        if historical['protocol'] != policies['protocol']:
+            raise ValueError('Unsupported historical scenario protocol')
+        policies = historical
+
+    recovered = {}
+    for cid, current in conditions.items():
+        recorded = [r for r in rows if (r.get('condition') or 'none') == cid]
+        if not recorded:  # Missing pooled calls still fail the grid check.
+            recovered[cid] = current
+            continue
+        hashes = {r.get('condition_sha256') for r in recorded}
+        if len(hashes) != 1 or None in hashes:
+            raise ValueError(f'Missing or mixed condition hashes for {cid}')
+        matches = []
+        for search in experiments.SEARCHES:
+            candidate = {**current, 'search': search}
+            candidate['sha256'] = experiments.condition_sha256(candidate)
+            if candidate['sha256'] in hashes:
+                matches.append(candidate)
+        if len(matches) != 1:
+            raise ValueError(f'Unknown historical condition settings for {cid}')
+        recovered[cid] = matches[0]
+    provenance = {'snapshot': snapshot.name,
+                  'snapshot_sha256': hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+                  'models': sorted(labels),
+                  'search': {cid: c['search'] for cid, c in recovered.items()
+                             if any((r.get('condition') or 'none') == cid for r in rows)}}
+    if policies.get('slug') in ('combined', 'eciself', 'eciself6mo'):
+        provenance['prompt_snapshot'] = prompt_snapshot.name
+        provenance['prompt_snapshot_sha256'] = hashlib.sha256(prompt_snapshot.read_bytes()).hexdigest()
+    return policies, recovered, labels, provenance
 
 
 def main():
@@ -43,9 +128,8 @@ def main():
     module = importlib.util.spec_from_file_location('launch_runner', ROOT / 'code/run_unified.py')
     ru = importlib.util.module_from_spec(module)
     module.loader.exec_module(ru)
-    labels = {m['label'] for m, _ in published_panel()}
     report = {'date': args.date.isoformat(), 'instrument_version': CURRENT_INSTRUMENT,
-              'models': sorted(labels), 'experiments': {}, 'errors': [], 'coherence_warnings': [],
+              'models': [], 'experiments': {}, 'errors': [], 'coherence_warnings': [],
               # The debrief (2026-09-15) is asked after the forecasts are accepted
               # and cannot move them, so a missing or incomplete one is a warning
               # for the brief's author, never a reason to withhold the page.
@@ -97,6 +181,12 @@ def main():
         rows = [r for r in iter_rows(path) if r.get('run_date') == args.date.isoformat()
                 and r.get('instrument_version') == CURRENT_INSTRUMENT
                 and not is_superseded(r)]
+        try:
+            policies, conds, labels, provenance = historical_inputs(rows, policies, conds, args.date)
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            check(False, 'historical_inputs', {'experiment': name, 'error': str(exc)})
+            continue
+        report['models'] = sorted(set(report['models']) | labels)
         policies = ru.resolve_set(policies, args.date)
         scenarios = list(policies['conditions'])
         groups, by_group, horizons, _, spec = ru.load_batch(ru.LADDER, ru.CROSS, ru.UNBATCHED)
@@ -235,6 +325,7 @@ def main():
         # 4 x 6 = 24 calls under airo's six conditions; the unpooled ones
         # count where they answered, and are listed as missing where not.
         report['experiments'][name] = {'scenario_set': slug, 'file_sha256': digest.hexdigest(),
+            'replay_inputs': provenance,
             'prompt_sha256': prompt_sha, 'rows': len(rows), 'probabilities': len(probabilities),
             'expected_probabilities': cells * len(scenario_ids) * (len(labels) * len(pooled) + unpooled_calls),
             'expected_calls': len(labels) * len(conds), 'pooled_calls': len(labels) * len(pooled),

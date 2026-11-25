@@ -140,10 +140,11 @@ def frontier_history(path):
     return hist, len(eci.load(path))
 
 
-def build(months=None):
+def build(months=None, snapshot=None):
     """months=None: the fixed end-of-2030 set. months=N: the rolling set,
-    target = run date + N months, texts carry PLACEHOLDER."""
-    day, snapshot = eci.latest_published()
+    target = run date + N months, texts carry PLACEHOLDER. `snapshot` pins
+    (date, path) for historical validation; normal generation uses the latest."""
+    day, snapshot = snapshot or eci.latest_published()
     csv_date = day.isoformat()
     hist, n_models = frontier_history(snapshot)
     top_date, top_score, top_name = hist[-1]

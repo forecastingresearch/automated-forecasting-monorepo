@@ -99,6 +99,7 @@ def validate(results):
     out = results / "report.json"
     r = subprocess.run([sys.executable, str(REPO / "code" / "validate_launch_run.py"), "--results", str(results),
                         "--date", TODAY.isoformat(), "--out", str(out)], capture_output=True, text=True, cwd=REPO)
+    assert out.exists(), r.stdout + r.stderr
     return r.returncode, json.loads(out.read_text()), r.stdout + r.stderr
 
 
@@ -114,6 +115,60 @@ class TestSixthCallLaunch(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
+
+    def replay(self, rows=None, conditions=None):
+        sys.path.insert(0, str(REPO / 'code'))
+        try:
+            import validate_launch_run as validator
+            return validator.historical_inputs(
+                rows if rows is not None else [r for r in self.rows if r.get('prompt')],
+                ru.load_policies(ru.COMBINED), conditions or AIRO['conditions'], TODAY)
+        finally:
+            sys.path.pop(0)
+
+    def test_replay_recovers_old_search_without_changing_current_config(self):
+        old = [{**r, 'condition_sha256': experiments.condition_sha256(
+            {**AIRO['conditions'][r['condition']], 'search': 'tavily'})}
+            for r in self.rows if r.get('prompt')]
+        current = {cid: {**c, 'search': 'exa'} for cid, c in AIRO['conditions'].items()}
+        policies, recovered, labels, provenance = self.replay(old, current)
+        self.assertEqual(set(provenance['search'].values()), {'tavily'})
+        self.assertEqual(set(c['search'] for c in current.values()), {'exa'})
+        # This fixture deliberately has a September panel and October prompt
+        # history: replay must not substitute one vintage for the other.
+        self.assertNotEqual(provenance['snapshot'], provenance['prompt_snapshot'])
+        self.assertEqual(policies['conditioning']['definitions'],
+                         ru.load_policies(ru.COMBINED)['conditioning']['definitions'])
+        self.assertEqual(labels, set(self.labels))
+
+    def test_unknown_condition_or_missing_snapshot_still_fail(self):
+        retained = [r for r in self.rows if r.get('prompt')]
+        bad = [{**r, 'condition_sha256': '0' * 64} for r in retained]
+        with self.assertRaisesRegex(ValueError, 'Unknown historical condition'):
+            self.replay(bad)
+        missing = [{**r, 'panel': {**r['panel'], 'snapshot': '2026-09-09'}} for r in retained]
+        with self.assertRaisesRegex(ValueError, 'Missing recorded Epoch snapshot'):
+            self.replay(missing)
+        mixed = [*retained[:-1], {**retained[-1], 'panel': None}]
+        with self.assertRaisesRegex(ValueError, 'panel provenance'):
+            self.replay(mixed)
+
+    def test_altered_prompt_is_rejected_even_with_a_matching_saved_hash(self):
+        import copy, hashlib
+        rows = copy.deepcopy(self.rows)
+        first = next(r for r in rows if r.get('prompt'))
+        first['prompt'] += '\nTampered instruction.'
+        digest = hashlib.sha256(first['prompt'].encode()).hexdigest()
+        for row in rows:
+            if row['call_id'] == first['call_id']:
+                row['prompt_sha256'] = digest
+        results = Path(self.tmp.name) / 'tampered-prompt'
+        write_run(results, rows)
+        rc, report, log = validate(results)
+        self.assertNotEqual(rc, 0, log)
+        kinds = {e['check'] for e in report['errors']}
+        self.assertIn('prompt_hash', kinds)
+        self.assertIn('exact_prompt_replay', kinds)
 
     def test_the_run_is_24_calls_with_the_sixth_stamped(self):
         calls = {r["call_id"] for r in self.rows}
