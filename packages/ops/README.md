@@ -104,7 +104,9 @@ does not change the job status; the next forecast job repeats the copy. Run
 `airo backup` (or `dashboardctl NAME backup`) for the first full copy and for a
 manual retry. The copy uses `gcloud storage rsync`: keep `gcloud` on the
 configured PATH, and log it in for the runtime home with a service account that
-can write to the bucket. The copy includes only `state/results`. Turn on Object
+can write to the bucket. A running worker reads `results_bucket` when it
+starts: add the key before a deploy, or restart the forecast worker. The copy
+includes only `state/results`. Turn on Object
 Versioning in the bucket to keep the old copies of files that change each day.
 
 Before installing dependencies or starting paid jobs, the runtime checks free
