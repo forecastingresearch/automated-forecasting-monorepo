@@ -558,12 +558,12 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
                     p.unlink()
                     p.symlink_to(dest)
 
-    def save_generated_data(self, code):
+    def save_generated_data(self, code, patterns=GENERATED_DATA):
         if self.name != 'airo':
             return
         # Epoch may create a new dated snapshot, or a writer may replace a symlink.
         with self.panel_data_lock():
-            for pattern in GENERATED_DATA:
+            for pattern in patterns:
                 for p in (code / AIRO / 'data').glob(pattern):
                     if p.is_file() and not p.is_symlink():
                         dest = self.state / 'data' / p.name
@@ -1112,7 +1112,10 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
                 try:
                     if launched and self.name == 'airo' and job['kind'] in ('forecast', 'forecastbench', 'eci-upstream'):
                         with self.lock():
-                            self.save_generated_data(code)
+                            if job['kind'] == 'eci-upstream':
+                                self.save_generated_data(code, patterns=('eci_trend_status.json',))
+                            else:
+                                self.save_generated_data(code)
                 finally:
                     started['finished'] = datetime.now(timezone.utc).isoformat()
                     write_json(receipt, started)

@@ -932,7 +932,7 @@ def test_eci_check_runs_daily_without_forecasts_or_publication(runtime, monkeypa
     p.link(r, runtime.current)
     calls = []
     monkeypatch.setattr(p, 'run', lambda *args, **kw: calls.append(args[0]))
-    monkeypatch.setattr(runtime, 'save_generated_data', lambda code: calls.append('saved'))
+    monkeypatch.setattr(runtime, 'save_generated_data', lambda code, **kw: calls.append(kw))
     job = {'id': 'eci-upstream', 'kind': 'eci-upstream', 'daily_utc': '11:30'}
     p.validate_jobs([job])
     assert p.lane_for(job) == 'refresh'
@@ -940,7 +940,7 @@ def test_eci_check_runs_daily_without_forecasts_or_publication(runtime, monkeypa
         assert list(p.due_jobs([job], datetime(2026, 11, day, 11, 30, tzinfo=timezone.utc)))
     assert runtime.execute_job('eci-test', job)
     assert list(map(str, calls[0]))[-3:] == ['-m', 'redlines.eci_trend', '--check-only']
-    assert calls[-1] == 'saved'
+    assert calls[-1] == {'patterns': ('eci_trend_status.json',)}
     assert not (r / 'site/index.html').exists()
 
 
