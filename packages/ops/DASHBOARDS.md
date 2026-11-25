@@ -90,6 +90,9 @@ publication. A publish-only retry never calls the forecasting models.
 }
 ```
 
+Add `results_bucket` to copy the dashboard's results to a bucket after each
+forecast job (see `packages/ops/README.md`).
+
 `panel_runtime_config` shares AIRO's private forecast home, worker capacity,
 Epoch snapshots and automatic model registrations. In queue mode each dashboard
 has its own lock for selecting a release or publication. A survey forecast refreshes

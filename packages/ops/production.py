@@ -622,6 +622,16 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
         streams = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL} if quiet else {}
         run([*command, site.resolve(strict=True)], timeout=900, **streams)
 
+    def backup(self, **streams):
+        """Copy new and changed files in state/results to the bucket. This does not delete bucket files."""
+        bucket = self.config.get('results_bucket')
+        if not bucket:
+            return
+        code = self.current.resolve(strict=True) / 'code'
+        run(['gcloud', 'storage', 'rsync', '--recursive', self.state / 'results',
+             f"{bucket.rstrip('/')}/{self.name}/results"],
+            env=self.environment(code, self.root / 'tmp'), timeout=3600, **streams)
+
     def republish(self):
         with self.lock():
             site = (self.current / 'site').resolve(strict=True)
@@ -1104,6 +1114,15 @@ exec "$PY" -m forecastbench.status --root "$rounds/$due" "$@"
                     if launched and self.name == 'airo' and job['kind'] in ('forecast', 'forecastbench'):
                         with self.lock():
                             self.save_generated_data(code)
+                    if launched and job['kind'] == 'forecast':
+                        # A failed copy pages. It does not change the job status.
+                        log_path = self.root / 'logs' / (key + '.log')
+                        try:
+                            with log_path.open('a') as log:
+                                self.backup(stdout=log, stderr=subprocess.STDOUT)
+                        except Exception as exc:
+                            self.alert(job, f'{key}: results not copied to the bucket ({type(exc).__name__}). '
+                                            'The next forecast job repeats the copy.', log=log_path, title='backup FAILED')
                 finally:
                     started['finished'] = datetime.now(timezone.utc).isoformat()
                     write_json(receipt, started)
@@ -1621,7 +1640,7 @@ def main():
     parser.add_argument('--config', default=os.environ.get('AIRO_RUNTIME_CONFIG', str(Path.home() / '.config/airo/runtime.json')))
     parser.add_argument('command', choices=['deploy', 'rollback', 'status', 'tick', 'worker', 'serve', 'smoke', 'prune', 'storage', 'build-release',
                                             'configure-forecastbench', 'forecastbench-status', 'check-forecastbench-upload', 'run-dashboard', 'republish',
-                                            'doctor', 'refresh'])
+                                            'doctor', 'refresh', 'backup'])
     parser.add_argument('--upload-prefix', help='configure-forecastbench: gs://bucket/team-prefix/binary; key JSON on stdin')
     parser.add_argument('--once', action='store_true', help='worker: make one pass without waiting')
     parser.add_argument('--lane', choices=('forecast', 'refresh'), help='worker: select a scheduled job lane')
