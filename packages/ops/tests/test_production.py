@@ -925,3 +925,38 @@ def test_forecastbench_status_uses_round_env_without_operation_lock(runtime, cap
     assert f'{rounds}/2030-01-15 --history' in capfd.readouterr().out
     runtime.forecastbench_status('2030-01-01', require_uploaded=True)
     assert f'{rounds}/2030-01-01 --require-uploaded' in capfd.readouterr().out
+
+
+def test_eci_check_runs_daily_without_forecasts_or_publication(runtime, monkeypatch):
+    r = release(runtime, 'eci')
+    p.link(r, runtime.current)
+    calls = []
+    monkeypatch.setattr(p, 'run', lambda *args, **kw: calls.append(args[0]))
+    monkeypatch.setattr(runtime, 'save_generated_data', lambda code: calls.append('saved'))
+    job = {'id': 'eci-upstream', 'kind': 'eci-upstream', 'daily_utc': '11:30'}
+    p.validate_jobs([job])
+    for day in (23, 25, 27, 29):
+        assert list(p.due_jobs([job], datetime(2026, 11, day, 11, 30, tzinfo=timezone.utc)))
+    assert runtime.execute_job('eci-test', job)
+    assert list(map(str, calls[0]))[-3:] == ['-m', 'redlines.eci_trend', '--check-only']
+    assert calls[-1] == 'saved'
+    assert not (r / 'site/index.html').exists()
+
+
+def test_eci_refresh_cache_survives_data_deployment(runtime, monkeypatch):
+    published_release(runtime)
+    runtime.state.joinpath('data').mkdir(parents=True)
+    p.write_json(runtime.state / 'data/eci_trend_current.json', {'vintage': 'old'})
+    def publication(site):
+        (site / 'index.html').write_bytes(dashboard('new', 20))
+        for name in p.DATA_FILES:
+            (site / name).write_text('new')
+    fake_install(runtime, monkeypatch, publication)
+    original = runtime.build_data
+    def build(code, site, env, **kw):
+        original(code, site, env, **kw)
+        p.write_json(code / p.AIRO / 'data/eci_trend_current.json', {'vintage': 'new'})
+        p.write_json(code / p.AIRO / 'data/eci_trend_status.json', {'problems': []})
+    monkeypatch.setattr(runtime, 'build_data', build)
+    runtime.deploy(publish_data=True)
+    assert json.loads((runtime.state / 'data/eci_trend_current.json').read_text()) == {'vintage': 'new'}

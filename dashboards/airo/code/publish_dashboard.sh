@@ -62,6 +62,9 @@ if ! python3 code/validate_launch_run.py --date "$LAUNCH_DATE" --out results/val
     echo "Publication withheld: integrity validation failed; currently served files are unchanged." >&2
     exit 1
 fi
+# Every data publication (scheduled or manual), independent of the forecast cadence.
+# Refresh failures retain the last curve with an alert and explicit stale status.
+python3 -m redlines.eci_trend
 python3 -m redlines build --views g1,g2,databank,timeline,conditional,capability,axes,method,rationales,csv --isolate --memory-limit-mib "${AIRO_BUILD_MEMORY_MIB:-2048}"
 # Atomic: copy beside the target, then rename, so a request that lands
 # mid-publish never sees a truncated page or a half-written archive.

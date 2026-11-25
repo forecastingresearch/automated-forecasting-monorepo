@@ -15,6 +15,7 @@ class TestPublishPreflight(unittest.TestCase):
         for name in ('redlines', 'code', 'results', 'served', 'web/fonts', 'web/img'):
             (root / name).mkdir(parents=True, exist_ok=True)
         (root / 'redlines/__init__.py').write_text('')
+        (root / 'redlines/eci_trend.py').write_text("from pathlib import Path\nassert Path('validator-date').exists()\nassert not Path('build-called').exists()\nPath('trend-refreshed').write_text('yes')\n")
         (root / 'redlines/instrument.py').write_text("CURRENT_INSTRUMENT = 'current-test'\n")
         (root / 'redlines/runlog.py').write_text('def iter_runlog(): return iter(())\n')
         (root / 'redlines/logs.py').write_text((ROOT / 'redlines/logs.py').read_text())
@@ -55,6 +56,7 @@ raise SystemExit(status)
     def assert_preserved(self, root, result):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((root / 'build-called').exists())
+        self.assertFalse((root / 'trend-refreshed').exists())
         self.assertEqual(list((root / 'served').iterdir()), [root / 'served/index.html'])
         self.assertEqual((root / 'served/index.html').read_text(), 'last successful publication')
 
@@ -92,5 +94,6 @@ raise SystemExit(status)
             result = self.run_script(root)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((root / 'build-called').exists())
+            self.assertTrue((root / 'trend-refreshed').exists())
             self.assertEqual((root / 'served/index.html').read_text(), 'new publication')
             self.assertEqual((root / 'served/redlines-data.zip').read_text(), 'fixture')
