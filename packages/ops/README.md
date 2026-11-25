@@ -15,6 +15,14 @@ No forecast jobs run during deployment. A successful activation switches code,
 website and schedules together.
 The development checkout is never served or run by the production scheduler.
 
+Historical publication validation reconstructs the panel from its recorded Epoch
+snapshot and the capability prompt from the Epoch vintage named in the retained
+prompt. It recovers the search backend only when the complete saved condition
+hash matches exactly. The audit report records both snapshot hashes and recovered
+settings. Missing snapshots, unknown settings, altered prompts and incomplete
+forecast grids still block publication; today's refreshed inputs never replace
+the inputs of an old run during validation.
+
 The live release fetches, checks and checks out the commit; the candidate then
 builds itself with its own copy of `code/production.py` (`build-release`, which
 only `deploy` calls). So a commit that moves files or changes the build deploys
