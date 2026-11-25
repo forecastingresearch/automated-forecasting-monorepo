@@ -531,6 +531,23 @@ def test_a_run_that_succeeds_but_cannot_publish_is_a_publish_failure(runtime, mo
     assert [(j, t) for j, t, _ in sent] == [('airo', 'publish FAILED')]
 
 
+def test_a_failed_bucket_copy_pages_and_the_job_still_succeeds(runtime, monkeypatch):
+    p.link(release(runtime, 'old'), runtime.current)
+    runtime.config['results_bucket'] = 'gs://bucket/'
+    sent = alerts(runtime, monkeypatch)
+    copies = []
+    def run_then_fail_the_copy(argv, **kw):
+        if argv[0] == 'gcloud':
+            copies.append(argv[-2:])
+            raise subprocess.CalledProcessError(1, 'gcloud')
+    monkeypatch.setattr(p, 'run', run_then_fail_the_copy)
+    monkeypatch.setattr(p, 'output', lambda *a, **kw: 'airo')
+    assert runtime.execute_job('copy-fails', {'id': 'airo', 'kind': 'forecast', 'daily_utc': '12:00'})
+    assert copies == [[runtime.state / 'results', 'gs://bucket/airo/results']]
+    assert [(j, t) for j, t, _ in sent] == [('airo', 'backup FAILED')]
+    assert json.loads((runtime.root / 'runs/copy-fails.json').read_text())['status'] == 'succeeded'
+
+
 def test_a_failed_news_poll_is_a_notice_and_a_failed_run_a_page(runtime, monkeypatch):
     r = release(runtime, 'old')
     p.link(r, runtime.current)

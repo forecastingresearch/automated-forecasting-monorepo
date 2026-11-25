@@ -95,6 +95,20 @@ symlinks are left alone. `state/`, `home/`, run receipts and logs are never prun
 Run `airo prune` to apply the same retention policy explicitly. Keep backups of
 accrued data independently; release retention is not a backup policy.
 
+To copy results to a Cloud Storage bucket, set `results_bucket` in the private
+runtime JSON, for example `"results_bucket": "gs://your-bucket"`. After each
+forecast job, the scheduler copies new and changed files from `state/results`
+to `gs://your-bucket/<dashboard>/results/`, with the same folders and file
+names. It does not delete bucket files. A failed copy pages `backup FAILED` and
+does not change the job status; the next forecast job repeats the copy. Run
+`airo backup` (or `dashboardctl NAME backup`) for the first full copy and for a
+manual retry. The copy uses `gcloud storage rsync`: keep `gcloud` on the
+configured PATH, and log it in for the runtime home with a service account that
+can write to the bucket. A running worker reads `results_bucket` when it
+starts: add the key before a deploy, or restart the forecast worker. The copy
+includes only `state/results`. Turn on Object
+Versioning in the bucket to keep the old copies of files that change each day.
+
 Before installing dependencies or starting paid jobs, the runtime checks free
 bytes and inodes. Deployment requires at least `min_free_bytes` (default 5 GiB),
 or estimated staging space plus a 2 GiB reserve, whichever is larger. This is a
