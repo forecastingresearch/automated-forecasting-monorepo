@@ -935,6 +935,7 @@ def test_eci_check_runs_daily_without_forecasts_or_publication(runtime, monkeypa
     monkeypatch.setattr(runtime, 'save_generated_data', lambda code: calls.append('saved'))
     job = {'id': 'eci-upstream', 'kind': 'eci-upstream', 'daily_utc': '11:30'}
     p.validate_jobs([job])
+    assert p.lane_for(job) == 'refresh'
     for day in (23, 25, 27, 29):
         assert list(p.due_jobs([job], datetime(2026, 11, day, 11, 30, tzinfo=timezone.utc)))
     assert runtime.execute_job('eci-test', job)

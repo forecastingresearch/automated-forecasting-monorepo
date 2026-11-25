@@ -155,6 +155,14 @@
     },
     "definition": "Epoch AI's Capabilities Index: one score per model across dozens of benchmarks, fit with an item-response model. Frontier ECI = the highest score of any released model from a US developer.",
     "trend": {
+      "freshness": {
+        "checkedAt": null,
+        "refreshedAt": null,
+        "problems": [],
+        "maxAgeDays": 7,
+        "approvedCommit": null,
+        "snapshotDate": "2026-09-10"
+      },
       "source": "METR graph's live ECI trend, linear default",
       "url": "https://metrgraph.streamlit.app/?tab=eci",
       "dataDate": "2026-09-10",

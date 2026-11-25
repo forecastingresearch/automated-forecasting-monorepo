@@ -146,7 +146,7 @@ def project(path, snapshot_day, today, samples=10000):
             'run': {'samples': samples, 'seed': 1}, 'daily': daily}
 
 
-def refresh(*, check_only=False, today=None):
+def _refresh(*, check_only=False, today=None):
     """Record failures, keep last good curve, and explicitly alert degradation.
 
     A changed upstream is *not* executed or adopted. Reviewed calculation can
@@ -193,6 +193,16 @@ def refresh(*, check_only=False, today=None):
     print(json.dumps(status, sort_keys=True))
     # Degradation is explicit in status + UI; it must not discard valid forecasts.
     return status
+
+
+def refresh(*, check_only=False, today=None):
+    # The independent daily check may overlap a forecast publication.
+    import fcntl
+    lock = STATUS.resolve().parent / '.eci-trend.lock'
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open('a') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return _refresh(check_only=check_only, today=today)
 
 
 def freshness(trend, status=None):
