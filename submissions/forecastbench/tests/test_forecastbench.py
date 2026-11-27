@@ -107,9 +107,20 @@ class ForecastBenchTest(unittest.TestCase):
         json.dump(QSET, open(qpath, "w"))
         return qpath, os.path.join(d, "round")
 
+    def test_resolved_round_skips_model_setup(self):
+        with tempfile.TemporaryDirectory() as d:
+            qpath, root = self._round(d)
+            with open(qpath, "w") as f:
+                json.dump({**QSET, "questions": [dict(q, resolved=True) for q in QSET["questions"]]}, f)
+            self.assertEqual(fb.main(["run", "--root", root, "--question-set", qpath,
+                                      "--model", "a/one", "--pi", "/missing"]), 0)
+
     def test_run_and_build(self):
         with tempfile.TemporaryDirectory() as d:
             qpath, root = self._round(d)
+            resolved = dict(QSET["questions"][0], id="closed", resolved=True)
+            with open(qpath, "w") as f:
+                json.dump(dict(QSET, questions=[*QSET["questions"], resolved]), f)
             pi = fake_pi(d)
             os.environ["FAKE_ALL"] = "1"
             try:

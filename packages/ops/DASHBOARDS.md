@@ -370,3 +370,20 @@ checks before acquiring the deployment lock. The normal deployment uses the
 existing data snapshot. It compares the public release metadata, homepage and
 download with the candidate and prints the verified URL, frontend commit and
 snapshot SHA-256. A failed public check restores the previous publication.
+
+### Forecast eligibility
+
+Before building a live forecast prompt, exclude every target with an accepted
+outcome in the dashboard's resolution ledger. Use the same selected targets for
+the prompt, answer schema, and completeness checks. A target is a question ID,
+a concrete horizon and a rule version. A zero or false outcome closes it just
+as a positive outcome does. Suggestions waiting for review do not close a target.
+Resolution refreshes still check accepted outcomes for revisions.
+
+The scheduler supplies a separate `DASHBOARD_RESOLUTIONS_DB` for each dashboard.
+EEAI uses its economic-data ledger and survey-year horizons. AIRO uses the
+concrete ISO end date for each ladder horizon and side forecast. A fixed RSI
+question has its horizon in its ID and uses the empty string for the horizon.
+AIRO and RSI currently use version 1. An empty forecast selection produces a
+skipped receipt and preserves the published run. Source-provided submission
+question sets can also mark questions as resolved explicitly.

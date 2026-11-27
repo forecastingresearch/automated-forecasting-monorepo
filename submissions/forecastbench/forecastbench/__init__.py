@@ -64,6 +64,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fri_forecaster import baseline, harness, panel
+from fri_forecaster.eligibility import is_resolved
 from fri_forecaster.keys import load_keys
 from fri_forecaster.tool_cli import BACKENDS, DEFAULT_SEARCH, SEARCH_ENV, SEARCH_KEYS
 from fri_forecaster.variants import VARIANTS
@@ -102,8 +103,8 @@ def load_question_set(src):
 
 
 def questions_of(qset):
-    """Single questions only: sets before 2025-10-26 carry combination questions (list ids)."""
-    return [q for q in qset["questions"] if not isinstance(q.get("id"), list)]
+    """Open single questions used for elicitation, coverage, and submission."""
+    return [q for q in qset["questions"] if not isinstance(q.get("id"), list) and not is_resolved(q)]
 
 
 def is_market(q):
@@ -350,7 +351,21 @@ def validate(fs, qset):
 
 
 def cmd_run(args):
-    harness.pi_argv(args.pi)             # no pi: fail here, not once per question
+    root = os.path.abspath(args.root)
+    os.makedirs(root, exist_ok=True)
+    qpath = os.path.join(root, "question_set.json")
+    if os.path.exists(qpath):            # a round's root is pinned to one question set
+        qset = json.load(open(qpath))
+        if args.question_set != "latest-llm.json" and load_question_set(args.question_set)["question_set"] != qset["question_set"]:
+            sys.exit(f"{root} holds {qset['question_set']}; use another --root")
+    else:
+        qset = load_question_set(args.question_set)
+        json.dump(qset, open(qpath, "w"))
+    qs = questions_of(qset)[: args.limit]
+    if not qs:
+        print("No open forecast targets.")
+        return 0
+    harness.pi_argv(args.pi)  # Fail once before starting any open questions.
     load_keys()
     if args.mode == "noresearch" and args.search is not None:
         sys.exit("--search requires a mode with research tools")
@@ -363,16 +378,6 @@ def cmd_run(args):
             sys.exit(f"--search {args.search} needs {', '.join(missing)} in the keys file")
     if args.search == "all":   # one member for each backend
         return max(cmd_run(argparse.Namespace(**vars(args) | {"search": s})) for s in BACKENDS)
-    root = os.path.abspath(args.root)
-    os.makedirs(root, exist_ok=True)
-    qpath = os.path.join(root, "question_set.json")
-    if os.path.exists(qpath):            # a round's root is pinned to one question set
-        qset = json.load(open(qpath))
-        if args.question_set != "latest-llm.json" and load_question_set(args.question_set)["question_set"] != qset["question_set"]:
-            sys.exit(f"{root} holds {qset['question_set']}; use another --root")
-    else:
-        qset = load_question_set(args.question_set)
-        json.dump(qset, open(qpath, "w"))
     due = qset["forecast_due_date"]
     if args.airo:
         args.mode = f"airo-{args.airo}"
@@ -381,7 +386,6 @@ def cmd_run(args):
     os.makedirs(mdir, exist_ok=True)
     check_manifest(os.path.join(mdir, "manifest.json"),
                    manifest_of(qset, args.model, args.thinking, args.mode, args.min_research, args.pi, args.search))
-    qs = questions_of(qset)[: args.limit]
     if args.sample:
         qs = sample_of(qs, args.sample)
     log = os.path.join(mdir, "results.jsonl")

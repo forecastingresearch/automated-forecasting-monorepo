@@ -34,6 +34,38 @@ def parse(text):
     return sections
 
 
+def selected_sections(sections, excluded):
+    result = []
+    for section in sections:
+        questions = [q for q in section["questions"] if q["id"] not in excluded]
+        if questions:
+            result.append(dict(section, questions=questions))
+    return result
+
+
+def survey_prompt(source, excluded):
+    if not excluded:
+        return source.rstrip()
+    original = parse(source)
+    sections = selected_sections(original, excluded)
+    count = sum(len(section["questions"]) for section in sections)
+    intro = re.sub(r"\d+ forecasting questions in \d+ sections",
+                   f"{count} forecasting questions in {len(sections)} sections",
+                   source.split("\n## 1.", 1)[0])
+    blocks = [intro.rstrip()]
+    for s in sections:
+        blocks.extend([f"## {s['id']}. {s['title']}", s["intro"]])
+        for q in s["questions"]:
+            blocks.extend([f"### {q['id']} {q['label']}", q["prompt"], "Answer: " + q["answer"],
+                           "Resolution: " + q["resolution"]])
+    # Other questions can refer back to a resolved question's definitions.
+    for section in original:
+        for q in section["questions"]:
+            if q["id"] in excluded and any(q["id"] in text for text in blocks):
+                blocks.append(f"Reference criteria for {q['id']}: {q['resolution']}")
+    return "\n\n".join(blocks)
+
+
 def fields(question):
     if question["answer"] == "a probability from 0 to 100.":
         return ("probability",)
