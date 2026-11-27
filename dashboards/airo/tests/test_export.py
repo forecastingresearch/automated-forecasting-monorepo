@@ -4,9 +4,8 @@ bundle results/redlines-data.zip.
 The CSVs are built from the same rows (redlines.export._published_rows:
 EVERY run-log row, stamped or not, plus every instrument log's conditional
 rows), so every forecast line has a rationale line to join to on call_id,
-question_id and the scenario (its `condition` column), and every model
-that ever ran is in both (project lead, 2026-09-08: include everything,
-even if it requires a .zip). The
+and every model that ever ran is in both (project lead, 2026-09-08: include
+everything, even if it requires a .zip). The
 panel_set column carries the dashboard's own filter.
 
 Run with:  python3 -m unittest tests.test_export -v
@@ -36,11 +35,10 @@ class TestDownloads(unittest.TestCase):
         self.assertEqual(len(f), n)
         self.assertEqual(len(r), m)
         self.assertEqual(list(r[0]), export.RATIONALE_COLUMNS)
-        key = lambda d: (d["call_id"], d["question_id"], d["scenario"])  # noqa: E731
-        rkeys = {key(d) for d in r}
-        self.assertEqual(len(rkeys), len(r), "one rationale line per call x question x scenario")
-        missing = {key(d) for d in f} - rkeys
-        self.assertEqual(missing, set(), f"{len(missing)} forecast keys without a rationale line")
+        rkeys = {d["call_id"] for d in r}
+        self.assertEqual(len(rkeys), len(r), "one rationale line per call")
+        missing = {d["call_id"] for d in f} - rkeys
+        self.assertEqual(missing, set(), f"{len(missing)} forecast calls without a rationale line")
         # Every model with a run-log row -- the current panel, the departed,
         # and the pre-panel frontier five (panel_set empty on their rows).
         labels = {row["label"] for row in load_runlog(panel_only=False)}
