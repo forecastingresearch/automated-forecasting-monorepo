@@ -107,6 +107,9 @@ class ForecastBenchTest(unittest.TestCase):
     def test_run_and_build(self):
         with tempfile.TemporaryDirectory() as d:
             qpath, root = self._round(d)
+            resolved = dict(QSET["questions"][0], id="closed", resolved=True)
+            with open(qpath, "w") as f:
+                json.dump(dict(QSET, questions=[*QSET["questions"], resolved]), f)
             pi = fake_pi(d)
             os.environ["FAKE_ALL"] = "1"
             try:

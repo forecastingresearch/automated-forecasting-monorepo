@@ -66,6 +66,8 @@ def submissions(root, reg, org, public_org):
     due = qset['forecast_due_date']
     if root.name != due or qset['question_set'] != f'{due}-llm.json':
         raise ValueError('Upload refused: root must be the dated real round, not a rehearsal')
+    if not fb.questions_of(qset):
+        raise ValueError('No open forecast targets to upload')
     conditions = names.submitted(reg)
     if not conditions:
         raise ValueError('No submitted conditions in the registry')

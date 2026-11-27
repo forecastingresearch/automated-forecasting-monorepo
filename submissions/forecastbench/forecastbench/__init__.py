@@ -56,6 +56,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fri_forecaster import baseline, harness, panel
+from fri_forecaster.eligibility import is_resolved
 from fri_forecaster.keys import load_keys
 from fri_forecaster.variants import VARIANTS
 
@@ -93,8 +94,8 @@ def load_question_set(src):
 
 
 def questions_of(qset):
-    """Single questions only: sets before 2025-10-26 carry combination questions (list ids)."""
-    return [q for q in qset["questions"] if not isinstance(q.get("id"), list)]
+    """Open single questions used for elicitation, coverage, and submission."""
+    return [q for q in qset["questions"] if not isinstance(q.get("id"), list) and not is_resolved(q)]
 
 
 def is_market(q):
@@ -349,8 +350,7 @@ def cmd_run(args):
     else:
         qset = load_question_set(args.question_set)
         json.dump(qset, open(qpath, "w"))
-    from fri_forecaster.eligibility import is_resolved
-    qs = [q for q in questions_of(qset) if not is_resolved(q)][: args.limit]
+    qs = questions_of(qset)[: args.limit]
     if not qs:
         print("No open forecast targets.")
         return 0

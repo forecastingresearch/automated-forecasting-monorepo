@@ -107,6 +107,13 @@ class UploadTest(unittest.TestCase):
         self.assertEqual(result, json.loads((self.root / 'upload-receipt.json').read_text()))
         self.assertEqual(result['objects'][0]['name'], f'team/binary/{DUE}/{self.path.name}')
 
+    def test_upload_counts_only_open_questions(self):
+        questions = [dict(QSET['questions'][0], status='resolved'), QSET['questions'][1]]
+        (self.root / 'question_set.json').write_text(json.dumps(dict(QSET, questions=questions)))
+        self.assertEqual(self.build(), 0)
+        self.assertEqual({r['id'] for r in json.loads(self.path.read_text())['forecasts']}, {'d'})
+        self.assertEqual(self.run_upload()['status'], 'uploaded')
+
     def test_retry_recovers_from_lost_response_without_overwriting(self):
         self.storage.fail_after_write = True
         with self.assertRaises(TimeoutError):
