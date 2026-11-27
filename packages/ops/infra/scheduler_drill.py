@@ -278,7 +278,10 @@ def drill(root, units, uid, gid):
     finally:
         try:
             systemctl('stop', timer, tick, paid, data)
-            systemctl('reset-failed', timer, tick, paid, data)
+            # systemd 255 refuses reset-failed for a unit that it already unloaded. Failed units stay loaded.
+            failed = [unit for unit in (timer, tick, paid, data) if property_of(unit, 'ActiveState') == 'failed']
+            if failed:
+                systemctl('reset-failed', *failed)
         finally:
             for path in files:
                 path.unlink(missing_ok=True)
