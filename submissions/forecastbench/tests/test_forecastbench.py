@@ -18,7 +18,8 @@ FAKE_PI = textwrap.dedent("""\
     import json, os, sys
     out = os.environ["FORECASTER_OUT"]
     open(os.path.join(out, "stdin.txt"), "w").write(sys.stdin.read())   # the prompt, as pi would read it
-    json.dump({{k: os.environ.get(k) for k in ("PI_CODING_AGENT_DIR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY")}},
+    json.dump({{k: os.environ.get(k) for k in ("PI_CODING_AGENT_DIR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
+                                                      "FORECASTER_SEARCH")}},
               open(os.path.join(out, "env.json"), "w"))
     if os.environ.get("FAKE_API_ERROR"):   # a provider error: pi ends the turn, exit 0, no cells
         print(json.dumps({{"type": "message_end", "message": {{"role": "assistant", "stopReason": "error",
@@ -67,6 +68,9 @@ QSET = {"forecast_due_date": "2026-10-11", "question_set": "2026-10-11-llm.json"
 
 
 class ForecastBenchTest(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(unittest.mock.patch.dict(os.environ, {"EXA_API_KEY": "unused", "TAVILY_API_KEY": "unused"}))
+
     def test_combination_questions_dropped(self):
         self.assertEqual([q["id"] for q in fb.questions_of(QSET)], ["m1", "SPY"])
 
@@ -76,6 +80,13 @@ class ForecastBenchTest(unittest.TestCase):
         got = fb.sample_of(qs, 6)
         self.assertEqual([q["id"] for q in got], ["m0", "m3", "m6", "d0", "d3", "d6"])
         self.assertEqual(len(fb.sample_of(qs[:2] + qs[10:], 6)), 6)  # few markets: dataset fills in
+
+    def test_panel_median_per_answered_cell(self):
+        key = ("metaculus", "m1")
+        members = {i: {key: {"probabilities": {"final": p}}} for i, p in enumerate((0.1, 0.2, 0.4, 0.99))}
+        self.assertAlmostEqual(fb.combine(QSET, members, "median")[key]["probabilities"]["final"], 0.3)
+        members[3][key]["probabilities"].clear()
+        self.assertEqual(fb.combine(QSET, members, "median")[key]["probabilities"]["final"], 0.2)
 
     def test_prompt(self):
         m, ds = fb.questions_of(QSET)
@@ -141,7 +152,7 @@ class ForecastBenchTest(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, {"FAKE_ALL": "1"}):
                 fb.main(["run", "--root", root, "--question-set", qpath, "--model", "a/one",
                          "--baseline", "--pi", fake_pi(d)])
-            self.assertEqual(os.listdir(os.path.join(root, "members")), ["a_one--high--airo-none"])
+            self.assertEqual(os.listdir(os.path.join(root, "members")), ["a_one--high--airo-none--exa"])
 
     def test_build_fails_below_coverage(self):
         with tempfile.TemporaryDirectory() as d:
@@ -171,6 +182,26 @@ class ForecastBenchTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 fb.main(["build", "--root", root, "--member", "a/one", "--name", "x", "--model-org", "X", "--org", "Example Team", "--set-number", "1"])
 
+    def test_a_search_backend_is_another_member(self):
+        with tempfile.TemporaryDirectory() as d:
+            qpath, root = self._round(d)
+            run = ["run", "--root", root, "--question-set", qpath, "--model", "a/one", "--search", "all", "--pi", fake_pi(d)]
+            with unittest.mock.patch.dict(os.environ, {"EXA_API_KEY": ""}), self.assertRaises(SystemExit):
+                fb.main(run)
+            self.assertFalse(os.path.exists(os.path.join(root, "members")))
+            with unittest.mock.patch.dict(os.environ, {"FAKE_ALL": "1", "EXA_API_KEY": "unused"}):
+                self.assertEqual(fb.main(run), 0)           # all: one member for each backend
+            for folder, search in (("a_one--high--airo-none", "tavily"), ("a_one--high--airo-none--exa", "exa"),
+                                   ("a_one--high--airo-none--keenable", "keenable")):
+                mdir = os.path.join(root, "members", folder)
+                env = json.load(open(os.path.join(mdir, "calls", "metaculus__m1", "attempt-1", "env.json")))
+                self.assertEqual(env["FORECASTER_SEARCH"], search)
+                manifest = json.load(open(os.path.join(mdir, "manifest.json")))
+                self.assertEqual(manifest.get("search"), None if search == "tavily" else search)   # Tavily: no new key
+            for n, search in enumerate(("tavily", "exa", "keenable"), start=1):
+                self.assertEqual(fb.main(["build", "--root", root, "--member", f"a/one,{search}", "--name", f"chorus-{search}",
+                                          "--org", "Example Team", "--set-number", str(n)]), 0)
+
     def test_an_airo_condition_is_the_baseline_loop_plus_its_instruction(self):
         from fri_forecaster import baseline
         from fri_forecaster.variants import VARIANTS
@@ -180,7 +211,7 @@ class ForecastBenchTest(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, {"FAKE_ALL": "1", "OPENAI_API_KEY": "unused"}):
                 self.assertEqual(fb.main(["run", "--root", root, "--question-set", qpath, "--model", "openai/one",
                                           "--airo", "two-step", "--pi", fake_pi(d)]), 0)
-            mdir = os.path.join(root, "members", "openai_one--xhigh--airo-two-step")   # openai's top level
+            mdir = os.path.join(root, "members", "openai_one--xhigh--airo-two-step--exa")   # openai's top level
             man = json.load(open(os.path.join(mdir, "manifest.json")))
             self.assertEqual((man["condition"], man["prompt_version"], man["thinking"], man["min_research"]),
                              ("two-step", fb.AIRO_PROMPT_VERSION, "xhigh", 0))
@@ -224,10 +255,10 @@ class ForecastBenchTest(unittest.TestCase):
                               "--org", "Example Team", "--set-number", "1"])
             self.assertEqual(rc, 1)                                   # every cell has a forecast, from a/one alone
             self.assertIn("market: 1/1 complete", out.getvalue())
-            self.assertIn("SHORT MEMBER b_two--high--airo-none: market 0/1, dataset 0/1", out.getvalue())
+            self.assertIn("SHORT MEMBER b_two--high--airo-none--exa: market 0/1, dataset 0/1", out.getvalue())
             self.assertIn("NOT READY TO UPLOAD: 1 member(s) below 95%", out.getvalue())
             prov = json.load(open(os.path.join(root, "2026-10-11.example-team.1.json.provenance.json")))
-            self.assertEqual(prov["member_coverage"]["a_one--high--airo-none"], {"market": [1, 1], "dataset": [1, 1]})
+            self.assertEqual(prov["member_coverage"]["a_one--high--airo-none--exa"], {"market": [1, 1], "dataset": [1, 1]})
 
     def test_a_refused_key_stops_the_member_without_retries(self):
         refused = '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'
@@ -243,7 +274,7 @@ class ForecastBenchTest(unittest.TestCase):
             finally:
                 os.environ.pop("FAKE_API_ERROR")
             self.assertEqual(rc, 2)
-            mdir = os.path.join(root, "members", "a_one--high--airo-none")
+            mdir = os.path.join(root, "members", "a_one--high--airo-none--exa")
             self.assertFalse(os.path.exists(os.path.join(mdir, "results.jsonl")))      # nothing to resume around
             calls = os.path.join(mdir, "calls")                                        # a call under way may finish:
             self.assertEqual({tuple(os.listdir(os.path.join(calls, c))) for c in os.listdir(calls)}, {("attempt-1",)})  # none is retried
@@ -277,8 +308,25 @@ class NamesTest(unittest.TestCase):
         self.assertIn("solo-elm", str(e.exception))
 
     def test_member_specs(self):
-        self.assertEqual(self.names.member_specs(self.reg, "solo"), ["anthropic/claude-opus-5-5@high,research"])
+        self.assertEqual(self.names.member_specs(self.reg, "solo"), ["anthropic/claude-opus-5-5@high,research,tavily"])
         self.assertTrue(all(s.endswith(",noresearch") for s in self.names.member_specs(self.reg, "unaided")))
+
+    def test_chorus_search_entries_pin_one_backend_each(self):
+        conditions = self.names.configure_chorus_search(self.reg, "pooled", "exa")
+        self.assertEqual(conditions, ["pooled", "pooled-exa", "pooled-keenable"])
+        self.assertEqual(self.names.submitted(self.reg), conditions)
+        self.assertEqual(self.names.public_of(self.reg), ["pooled-exa"])
+        for c in conditions:
+            name = self.names.current(self.reg, c)
+            self.assertIn(name, ["pooled-" + place for place in self.reg["places"]])
+            self.assertEqual(self.reg["names"][name]["aggregate"], "median")
+            self.assertEqual(self.reg["names"][name]["prompts"], ["none"])
+        tavily, exa, keenable = [self.names.member_specs(self.reg, c) for c in conditions]
+        self.assertEqual(exa, [s.removesuffix("tavily") + "exa" for s in tavily])
+        self.assertEqual(keenable, [s.removesuffix("tavily") + "keenable" for s in tavily])
+        original = json.dumps(self.reg)
+        self.names.configure_chorus_search(self.reg, "pooled", "exa")
+        self.assertEqual(json.dumps(self.reg), original)
 
     def test_places_unique(self):
         self.assertEqual(len(self.reg["places"]), len(set(self.reg["places"])))
@@ -286,9 +334,9 @@ class NamesTest(unittest.TestCase):
     def test_an_entry_with_prompts_runs_every_member_under_each(self):
         specs = self.names.member_specs(self.reg, "pooled")
         self.assertEqual(len(specs), 4 * 5)
-        self.assertEqual(specs[0], "anthropic/claude-opus-5-5@max,airo-none")          # each model's top level
-        self.assertEqual(specs[-1], "anthropic/claude-sonnet-5-5@max,airo-two-step")
-        self.assertIn("openai/gpt-6-astra@xhigh,airo-critical", specs)
+        self.assertEqual(specs[0], "anthropic/claude-opus-5-5@max,airo-none,tavily")          # each model's top level
+        self.assertEqual(specs[-1], "anthropic/claude-sonnet-5-5@max,airo-two-step,tavily")
+        self.assertIn("openai/gpt-6-astra@xhigh,airo-critical,tavily", specs)
 
     def test_an_instruction_is_part_of_the_fingerprint(self):
         from fri_forecaster import variants
@@ -381,7 +429,7 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(e["reason"], "sync 2026-10-19: members " + ", ".join(self.have) + " -> " +
                          ", ".join(self.have[:3] + ["Claude Fable 5.1"]))
         self.assertEqual(self.reg["names"]["ensemble-oak"]["members"][3]["eci_name"], self.have[3])  # never edited
-        self.assertEqual(self.names.member_specs(self.reg, "ensemble")[3], "anthropic/claude-fable-5-1@high,research")
+        self.assertEqual(self.names.member_specs(self.reg, "ensemble")[3], "anthropic/claude-fable-5-1@high,research,tavily")
         self.assertEqual(self.names.sync(self.reg, "pooled", panel)[0], "pooled-elm")
         p = self.reg["names"]["pooled-elm"]
         self.assertEqual(p["prompts"], self.reg["names"]["pooled-oak"]["prompts"])     # the same five prompts
@@ -389,7 +437,7 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(p["members"][3]["options"]["thinking"], "max")                # Anthropic's top level, not a copy
         self.assertEqual(p["members"][1]["options"]["thinking"], "xhigh")
         self.assertEqual(self.names.current(self.reg, "pooled"), "pooled-elm")
-        self.assertEqual(self.names.member_specs(self.reg, "pooled")[3], "anthropic/claude-fable-5-1@max,airo-none")
+        self.assertEqual(self.names.member_specs(self.reg, "pooled")[3], "anthropic/claude-fable-5-1@max,airo-none,tavily")
 
     def test_names_alone_cannot_register_so_the_current_name_is_kept_with_a_warning(self):
         panel = self.names.parse_panel([f"{n}\n" for n in self.have[:3] + ["Claude Fable 5.1"]])

@@ -341,7 +341,7 @@ class UrlGuardPassthroughTest(PiCase):
                                 "TAVILY_API_KEY": "", "FORECASTER_ENV_FILE": os.path.join(self.tmp.name, "no-env")})
         self.assertEqual(res["rc"], 0, open(os.path.join(res["workdir"], "stderr.txt")).read())
         self.assertIn("page read failed: page unavailable", model.tool_result(2))
-        self.assertIn("no TAVILY_API_KEY set", model.tool_result(3))
+        self.assertIn("no EXA_API_KEY set", model.tool_result(3))
         self.assertEqual((res["usage"]["research_ok"], res["usage"]["research_failed"]), (0, 2))
 
 

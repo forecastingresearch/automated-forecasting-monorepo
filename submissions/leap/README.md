@@ -8,8 +8,8 @@ resolution dates (an *entry*), as percentiles or as one point forecast.
 The system submitted is the standing panel under the Baseline condition: the top
 four models by Epoch's index (`fri_forecaster.panel`), each asked the whole
 question set once with web search (`fri_forecaster.baseline`), pooled by an
-equal-weight mean per value. It is the same system as ForecastBench's `chorus`
-condition and goes under the same name (`python -m forecastbench.names current chorus`).
+equal-weight mean per value. The same Baseline ensemble is used for ForecastBench's Chorus comparison.
+Match the search backend when using a registered ForecastBench name for a LEAP run.
 
 ```
 leap/

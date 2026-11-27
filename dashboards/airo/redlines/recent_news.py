@@ -3,6 +3,7 @@
 See experiments/recent-news/README.md. No forecast, survey scoring, full-text
 extraction, or production integration. State and decision logs are private.
 """
+import fcntl
 import hashlib
 import html
 import json
@@ -226,6 +227,13 @@ def load_items(state_dir=STATE_DIR):
 def poll(feeds=None, state_dir=STATE_DIR, get=http_get, resolve=resolve_google_news, now=None):
     """Fetch every feed once and append what is new. Free: no keys, no model.
     Returns the fetch rows it logged."""
+    os.makedirs(state_dir, exist_ok=True)
+    with open(os.path.join(state_dir, ".poll.lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _poll(feeds, state_dir, get, resolve, now)
+
+
+def _poll(feeds, state_dir, get, resolve, now):
     feeds = feeds if feeds is not None else load_feeds()
     now = now or _now()
     items = load_items(state_dir)

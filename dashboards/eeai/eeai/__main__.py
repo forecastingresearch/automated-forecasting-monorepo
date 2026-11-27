@@ -38,7 +38,7 @@ def main(argv=None):
     r.add_argument("--out", help="directory for the run file (default eeai/results/runs)")
     r.add_argument("--today", help="the run date, YYYY-MM-DD (default today, UTC)")
     r.add_argument("--synthetic", action="store_true", help="no calls: made-up answers (needs --out)")
-    r.add_argument("--allow-ungrounded", action="store_true", help="run without TAVILY_API_KEY")
+    r.add_argument("--allow-ungrounded", action="store_true", help="allow a run without the selected search API key")
     b = sub.add_parser("build", help="the run files -> the page")
     b.add_argument("--publication", action="store_true", help="require complete real panel runs before export")
     b.add_argument("--runs", help="directory of run files (default eeai/results/runs)")
@@ -83,8 +83,12 @@ def main(argv=None):
     if args.cmd == "refresh":
         import json
         from . import baselines, resolve
-        print(f"{resolve.refresh()} resolved target(s)")
-        print(json.dumps(baselines.refresh(), indent=2))
+        day = datetime.now(timezone.utc).date()
+        resolved = resolve.refresh(day)
+        # Forecasts read the latest completed dated baseline. Advance it only
+        # once the resolution pass has finished.
+        print(json.dumps(baselines.refresh(day), indent=2))
+        print(f"{resolved} resolved target(s)")
         return 0
     if args.cmd == "resolve":
         from .resolve import refresh

@@ -2,6 +2,7 @@
 import io
 import json
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zipfile
 from datetime import date
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from eeai import baselines, build, config, decisions, export, resolve, survey
+from eeai.__main__ import main
 from dashboard import resolutions
 
 
@@ -156,6 +158,43 @@ class ResolutionTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 baselines.refresh(day, lambda *args, **kwargs: [])
             self.assertEqual(source.read_bytes(), before)
+
+    def test_refresh_does_not_advance_forecast_baseline_on_resolution_failure(self):
+        with patch.object(resolve, "refresh", side_effect=RuntimeError("missing evidence")), patch.object(baselines, "refresh") as refresh:
+            with self.assertRaisesRegex(RuntimeError, "missing evidence"):
+                main(["refresh"])
+            refresh.assert_not_called()
+
+    def test_build_pins_the_chosen_baseline_bytes_and_source_date(self):
+        baseline = self.root / "baselines"
+        baseline.mkdir()
+        source = baseline / "2025-11-21.csv"
+        history = config.HISTORY.read_bytes()
+        source.write_bytes(history)
+        site = self.root / "site"
+        row = {"run_id": "test", "label": "fixture", "run_date": "2025-01-01", "model": "fixture",
+               "question_id": "gdp", "forecasts": {}, "rationale": None}
+        (self.root / "test.jsonl").write_text(json.dumps(row))
+        assemble = build.page
+
+        def concurrent_refresh(blob):
+            self.assertEqual(blob["baseline"], {"source": "fred", "as_of": "2025-11-21"})
+            replacement = baseline / "temporary"
+            replacement.write_bytes(b"concurrent replacement")
+            replacement.replace(source)
+            (baseline / "2025-11-22.csv").write_bytes(b"newer snapshot")
+            return assemble(blob)
+
+        args = SimpleNamespace(runs=str(self.root), out=None, json=None, site=str(site))
+        with patch.object(build, "page", concurrent_refresh), patch.object(build, "load_runs", return_value=[("test", [row])]):
+            build.main(args)
+        with zipfile.ZipFile(site / export.NAME) as archive:
+            self.assertEqual(json.loads(archive.read("baseline.json")), {"source": "fred", "as_of": "2025-11-21"})
+            self.assertEqual(archive.read("history.csv"), history)
+        self.assertIn('"as_of": "2025-11-21"', (site / "index.html").read_text())
+        source.unlink()
+        (baseline / "2025-11-22.csv").unlink()
+        self.assertEqual(baselines.snapshot(), ({"source": "survey", "as_of": None}, history))
 
     def test_adjudication_and_correction(self):
         decision = dict(question="ai_electricity", horizon="2030", version=1, value=2.0,

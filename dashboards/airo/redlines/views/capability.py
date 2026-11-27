@@ -20,17 +20,16 @@ redlines.views.conditional._variant -- same arithmetic, same JSON shape, so
 the page renders both with one component. The rows a variant shows are the
 latest elicitation day's, pooled, as the policy tab does.
 
-The trend is metr_graph's ECI-tab projection at its defaults, read from
-data/eci_trend_2026-08-21.json (code/make_eci_trend.py: the seeded replica
-run once, daily, on the laptop -- the box that publishes has no numpy): a
-monthly p25 / p50 / p75 curve for the chart, from the anchor day (the last
-frontier point, where the projection starts) on, and the three values at
-each variant's target date. Context for the chart, never something the model saw.
+The trend is refreshed by redlines.eci_trend at each data publication from
+Epoch's current snapshot and a reviewed upstream method. Offline builds retain
+the historical curve, explicitly dated and marked stale by the frontend.
+Context for the chart, never something the forecasting model saw.
 """
 import json
 import statistics as st
 from datetime import datetime
 
+from .. import eci, eci_trend
 from ..logs import log_exists
 from ..conditional import (LOSS_LEG, group_rows, group_view, latest_conditional, method_notes, newest_protocol, protocol_line)
 from ..config import REPO_ROOT
@@ -53,9 +52,7 @@ VARIANTS = [
     ("six months out", [("data/combined_conditions.json", "capability"),
                         ("data/eci_self6mo_conditions.json", None)]),
 ]
-# The live METR chart is refreshed independently of the historical prompt
-# given to models.  Its observed ECI history and trend therefore update the
-# display without rewriting what a past elicitation was shown.
+# Last good historical fallback; current runtime cache takes precedence.
 TREND_JSON = REPO_ROOT / "data" / "eci_trend_2026-09-10.json"
 # The one human forecast of the ECI: LEAP Wave 5's "U.S. versus China
 # Polarity" question (code/pull_leap_axes.py, key eci_us). The FRI economist,
@@ -96,12 +93,24 @@ def leap_eci(leap=None):
     }
 
 
+def observed_eci_history():
+    """Chart observations use the exact latest snapshot used to select models."""
+    snapshot_day, snapshot = eci.latest()
+    history = [{"date": d, "score": score, "model": model}
+               for d, score, model in eci.frontier_history(snapshot)]
+    if not history:
+        raise ValueError(f"Capability history unavailable from panel snapshot {snapshot.name}")
+    return {"csvDate": snapshot_day.isoformat(), "snapshot": snapshot.name,
+            "historySource": eci.SCORES_URL, "history": history, "latest": history[-1]}
+
+
 def _trend(target_dates):
     """metr_graph's p25/p50/p75 from the precomputed daily file: a monthly
     curve (the anchor day, month starts, plus the last day) for the chart,
     and the values at each target date -- the day itself, or the nearest day
     in the file."""
-    t = json.load(open(TREND_JSON))
+    path = eci_trend.CACHE if eci_trend.CACHE.exists() else TREND_JSON
+    t = json.load(open(path))
     daily = t["daily"]
     by = {r["date"]: r for r in daily}
     curve = [{"date": r["date"], "p25": r["p25"], "p50": r["p50"], "p75": r["p75"]}
@@ -118,6 +127,7 @@ def _trend(target_dates):
         return {k: r[k] for k in ("p25", "p50", "p75")}
 
     return {
+        "freshness": eci_trend.freshness(t),
         "source": t["source"]["label"],
         "url": t["source"]["app"],
         "dataDate": t["source"]["retrieved"],
@@ -208,14 +218,12 @@ def build(horizons=DEFAULT_HORIZONS, variants=VARIANTS):
     qs = all_questions()
     colors = dict(model_colors())
     out_variants, stamps = [], []
-    history = None
     for label, sources in variants:
         spec, rows, slug, group, path_, proto = _pick(sources)
         if variants is VARIANTS:
             rows = current_forecast_rows(rows)
         if rows:
             stamps += [r.get("elicited_at") or "" for r in rows]
-        history = history or spec.get("history")
         target = sorted({(r.get("elicited") or {}).get("target_date") for r in rows} - {None})
         target_date = target[-1] if target else spec["elicit"].get("target_date")
         v = _variant(rows, spec, horizons, ladder, qs, colors)
@@ -283,21 +291,16 @@ def build(horizons=DEFAULT_HORIZONS, variants=VARIANTS):
     trend = _trend(targets)
     for v in out_variants:
         v["forecast"]["trend"] = trend["at"].get(v["targetDate"])
-    # `history` in the elicitation set remains the prompt record.  The chart
-    # instead uses the current upstream ECI history packaged with its trend.
-    current_history = json.load(open(TREND_JSON)).get("frontier") or history or []
-    latest = current_history[-1] if current_history else None
+    observed = observed_eci_history()
     return {
         "title": "Forecasts conditional on AI capability",
         "instrumentInfo": out_variants[0]["instrumentInfo"] if out_variants else instrument_info([]),
         "generatedAt": max(stamps, default=None),
         "eci": {
-            "csvDate": trend["dataDate"],
+            **observed,
             "definition": "Epoch AI's Capabilities Index: one score per model across dozens "
                           "of benchmarks, fit with an item-response model. Frontier ECI = the "
                           "highest score of any released model from a US developer.",
-            "history": current_history,
-            "latest": latest,
             "trend": trend,
         },
         # The LEAP superforecasters' forecast of the same quantity, drawn beside

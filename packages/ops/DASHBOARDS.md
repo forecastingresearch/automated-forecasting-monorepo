@@ -90,8 +90,9 @@ publication. A publish-only retry never calls the forecasting models.
 }
 ```
 
-`panel_runtime_config` shares AIRO's private forecast home, operation lock,
-Epoch snapshots and automatic model registrations. A survey forecast refreshes
+`panel_runtime_config` shares AIRO's private forecast home, worker capacity,
+Epoch snapshots and automatic model registrations. In queue mode each dashboard
+has its own lock for selecting a release or publication. A survey forecast refreshes
 the panel through the primary release before starting paid calls. The
 date check in the runner also applies to manual calls. Each survey writes
 its own results, attempts, sites and receipts under its own root.
@@ -162,13 +163,34 @@ curl --fail --user reader https://rsi.example.org/release.json
 
 ## Schedule and recover runs
 
-Use the **one host timer**, `fri-dashboard-tick.timer`. It invokes
-`dashboardctl tick-all` every UTC minute. Each installed dashboard reads
-its own entries from the same repository file, `packages/ops/jobs.json`,
-at the commit it has deployed. Existing entries with no `dashboard` field
-belong to the primary AIRO installation, including ForecastBench rounds.
-The runtime refreshes panel state, runs the selected instrument on the server,
-validates the publication and switches that site's pointer.
+The host timer invokes `dashboardctl tick-all` every UTC minute. Each installed
+dashboard reads its own entries from `packages/ops/jobs.json` in its selected
+release. A scheduled occurrence has one durable key across timer ticks and
+service restarts. The forecast and refresh workers share capacity across all
+dashboard installations on the host. Each installation retains its own
+queue, execution receipts, and release history.
+
+To migrate an existing host:
+
+1. Deploy the checked commit to each installed dashboard. Keep the existing
+   timer and each dashboard's `jobs-enabled` marker in place.
+2. Install `packages/ops/examples/fri-dashboard-worker@.service` next to the
+   timer. Configure the same forecasting account, dashboard config directory,
+   launcher and network environment used by the scheduler. The refresh worker
+   needs the existing FRED route and the external publication verifier.
+3. During an idle minute, enable and start the forecast and refresh instances
+   and create `job-queue-enabled` under the primary runtime root. Check both
+   services, run a timer tick, and inspect queue status on every dashboard.
+4. Before reverting to the legacy scheduler, let running jobs finish and
+   inspect pending occurrences. Stop both workers before switching scheduling
+   modes. Preserve the databases and receipts.
+
+```sh
+systemctl daemon-reload
+systemctl enable --now fri-dashboard-worker@forecast.service fri-dashboard-worker@refresh.service
+dashboardctl airo status
+dashboardctl eeai doctor
+```
 
 RSI runs both Baseline research-access conditions every Friday at 02:00 UTC, ahead of AIRO’s 12:00 UTC decision. Its reviewed schedule is:
 
@@ -215,6 +237,109 @@ records `publish FAILED` and pages that same channel. Completed survey results
 remain available for recovery. Keep channel routing configured to accept all
 three deployment names.
 
+### EEAI operator pilot
+
+Run these on forecast-prod. The installed `forecast-prod eeai` launcher can
+stand in for `dashboardctl eeai`.
+
+```sh
+dashboardctl eeai doctor
+dashboardctl eeai status
+dashboardctl eeai refresh --verify --run-id manual-20261119
+```
+
+`doctor` returns JSON and exits nonzero when a check fails or is unknown.
+It checks the loaded timer, its effective `dashboardctl tick-all` service,
+the schedule marker, and whether the scheduler reads the same runtime config.
+It compares the effective HTTPS proxy and bypass settings without printing
+their values. Its keyless HTTPS request to the official FRED observations
+endpoint uses the scheduler's route. An identifiable FRED missing-key response
+establishes connectivity. The check makes no request with FRED credentials.
+
+In queue mode the doctor checks the active, enabled refresh worker, verifies
+which installation it serves, and probes FRED using that worker’s route.
+The route comes from a readable service process or observable systemd
+manager and unit properties, including simple literal `EnvironmentFile`
+assignments. An unreadable file, unsupported expansion or syntax, unavailable
+inherited or PAM state, or isolated network namespace can make the route
+unknown. Run the probe from the service account when certificate or file
+permissions differ. The run-file check detects an unseeded installation.
+The refresh builder checks those files for completeness.
+
+The doctor compares public `release.json` with the selected frontend commit
+and snapshot. It reports sign-in redirects, access denials, stale metadata,
+and unverifiable delivery separately. Selected fields from the offline
+CONNECT-denial fixture follow.
+
+```json
+{
+  "project": "eeai",
+  "https_proxy_settings": "matched",
+  "fred": {"destination": "api.stlouisfed.org", "route": "proxy", "result": "proxy_connect_denied"},
+  "public_delivery": {
+    "url": "https://dashboard.invalid/eeai/",
+    "source": "public_verifier",
+    "result": "verified",
+    "checks": {"release.json": "verified"}
+  }
+}
+```
+
+`status` reads `published_baseline` from the selected site. Its date can be
+null for the survey seed or a legacy page. `latest_verified_refresh` records
+the time and snapshot of a public verification. Older success receipts
+without verification do not qualify. `latest_refresh_failure` includes failed,
+missed and interrupted refreshes. `economic_schedule` reports the next UTC slot
+when the marker enables scheduling and the active minute timer dispatches the
+expected service. Otherwise it reports disabled, unscheduled or unknown.
+
+Manual and scheduled refreshes use their invocation environments and the same
+job path. The runtime refreshes FRED observations and resolutions, builds
+from completed forecast runs, validates the baseline and ZIP, and uses the
+external `public_publisher` to transfer the candidate. It verifies served HTML
+and ZIP bytes plus the release commit and snapshot before selecting the
+candidate locally. The pilot requires the external publisher and uses no
+forecasting-model calls.
+
+Same-ID invocations return the existing receipt. After an upstream or build
+failure, fix the cause and run with a new ID. Failed transfer or verification
+leaves the prior local selection in place and attempts to restore it publicly.
+The receipt records whether restoration was verified. If restoration fails or
+the process stops during remote transfer, use `dashboardctl eeai republish`
+to send the selected site and `dashboardctl eeai doctor` to check its public
+metadata. Retry a failed transfer or verification without fetching FRED
+again while the same release and prior publication are selected and the saved
+candidate remains available.
+
+```sh
+dashboardctl eeai refresh --verify --retry manual-20261119 --run-id retry-20261119
+```
+
+**Private configuration.** Set the installation's HTTPS `public_url` and use
+its existing `public_publisher`. Set `scheduler_service` and `scheduler_timer`
+if the unit names differ from `fri-dashboard-tick.service` and
+`fri-dashboard-tick.timer`. The default verifier uses anonymous HTTPS.
+For a protected site, set `public_verifier` to a private argv list. This
+read-only command receives a JSON manifest on stdin with `url`,
+`frontend_commit`, `data_snapshot_sha256`, and `files`. For a refresh, `files`
+maps `index.html` and `eeai-data.zip` to `sha256` and byte `size`. The doctor
+sends an empty `files` map.
+
+The verifier fetches `release.json`, compares its frontend commit and snapshot,
+and checks exact bytes for each requested file. Use the base URL for
+`index.html`. It exits zero and returns per-file results as a JSON object
+with values drawn from `verified`, `stale`, `login_redirect`, `access_denied`,
+`unverifiable`, `timeout`, `dns`, `tls`, and `proxy_connect_denied`.
+Missing results, command errors or timeouts fail verification.
+
+The existing authenticated route on the web host can supply those reads. For
+example, use read-only SSH to run `eeai_operator.py public` there. The helper's
+`--headers-file` accepts a private JSON file with `Authorization` or `Cookie`
+headers, and `--expect-url` binds them to the configured HTTPS URL. The helper
+leaves redirect handling, credential renewal, and access-policy checks to the
+installation. The existing publisher hook can still verify atomic remote
+activation and check anonymous access policy independently.
+
 ## Add a fourth dashboard
 
 Package its runner and static builder as project entry points. The runner
@@ -238,6 +363,13 @@ job is daily at 15:15 UTC. Set `daily_utc`, `weekly_utc` or `at` to override
 it. The command reads source evidence and saves outcomes. The scheduler then
 rebuilds and verifies the page using the dashboard's existing forecast runs.
 EEAI's command also refreshes its historical baseline.
+
+For EEAI, run `dashboardctl eeai deploy --commit SHA --wait` from the production
+runtime. It pins the merged commit and waits up to 30 minutes for its required
+checks before acquiring the deployment lock. The normal deployment uses the
+existing data snapshot. It compares the public release metadata, homepage and
+download with the candidate and prints the verified URL, frontend commit and
+snapshot SHA-256. A failed public check restores the previous publication.
 
 ### Forecast eligibility
 

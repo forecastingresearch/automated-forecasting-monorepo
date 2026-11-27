@@ -12,6 +12,27 @@ const capDate = s => new Date(s + (s.length === 10 ? "T00:00:00Z" : ""));
 const capFmtDate = s => { const d = capDate(s); return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }); };
 const capFmtEci = v => (v == null ? "—" : Number(v).toFixed(0));
 
+function EciForecastTooltip({ forecast }) {
+  const columns = [10, 25, 50, 75, 90].filter(p => forecast.rows.some(r => r["p" + p] != null));
+  return <React.Fragment>
+    <div style={{ marginTop: 5 }}><strong>Forecast made:</strong> {forecast.made}</div>
+    <div style={{ color: "var(--ink-soft)" }}>Forecast for: {forecast.target}</div>
+    <div style={{ maxWidth: "calc(100vw - 48px)", overflowX: "auto", marginTop: 9 }}>
+      <table aria-label={forecast.title + " ECI forecasts"} style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+        <thead><tr>
+          <th scope="col" style={{ textAlign: "left", padding: "4px 8px 4px 0" }}>Forecaster</th>
+          {columns.map(p => <th key={p} scope="col" style={{ textAlign: "right", padding: "4px 6px", whiteSpace: "nowrap" }}>{p === 50 ? "Median" : "P" + p}</th>)}
+        </tr></thead>
+        <tbody>{forecast.rows.map(row => <tr key={row.label} style={{ borderTop: "1px solid var(--line-soft)", fontWeight: row.label === "Ensemble" ? 600 : 400 }}>
+          <th scope="row" style={{ textAlign: "left", padding: "5px 8px 5px 0", fontWeight: "inherit", whiteSpace: "nowrap" }}>{row.label}</th>
+          {columns.map(p => <td key={p} className="mono" style={{ textAlign: "right", padding: "5px 6px" }}>{row["p" + p] == null ? "—" : Number(row["p" + p]).toFixed(1)}</td>)}
+        </tr>)}</tbody>
+      </table>
+    </div>
+    {forecast.n != null && <div style={{ marginTop: 5, color: "var(--ink-soft)" }}>{forecast.n} forecasters</div>}
+  </React.Fragment>;
+}
+
 /* ============================ the ECI chart ============================ */
 // x is time (2023 -> just past the far target); y is the ECI score. The
 // history is a step: the frontier stays where it is until a release beats
@@ -24,9 +45,8 @@ const capFmtEci = v => (v == null ? "—" : Number(v).toFixed(0));
 // Nick, 2026-08-28: stacked whiskers "make it look like they're about
 // different times". The
 // active variant is drawn solid, the other faint, and clicking one
-// switches the variant below. Per-model numbers are not on the page
-// (Nick, 2026-08-28: no table under the chart); they are in the blob
-// (forecast.models) and docs/conditional-forecasts.md.
+// switches the variant below. Forecast tables and their elicitation dates
+// appear in tooltips, keeping numeric labels off the plot.
 function EciTrendChart({ eci, variants, active, onPick }) {
   const box = React.useRef(null);
   const cw = useContainerWidth(box, 900);
@@ -37,8 +57,7 @@ function EciTrendChart({ eci, variants, active, onPick }) {
   const fc = variants.filter(v => v.forecast && v.forecast.models.length);
   const t0 = capDate("2023-01-01").getTime();
   const lastTarget = fc.reduce((m, v) => Math.max(m, capDate(v.targetDate).getTime()), 0);
-  // The window ends eight months past the farthest target -- room for its
-  // label on the right; the trend (the file runs to end-2030) is clipped to it.
+  // The window ends eight months past the farthest target; the trend is clipped to it.
   const t1 = Math.max(capDate("2027-06-30").getTime(), lastTarget + 240 * 86400e3);
   const curve = ((eci.trend && eci.trend.curve) || []).filter(c => capDate(c.date).getTime() <= t1);
   // The LEAP superforecasters' forecast of the same quantity (Wave 5: the top
@@ -63,25 +82,12 @@ function EciTrendChart({ eci, variants, active, onPick }) {
   // The step path: hold each score until the next new high.
   const step = hist.map((h, i) => {
     const xa = x(h.date), ya = y(h.score);
-    const xb = i + 1 < hist.length ? x(hist[i + 1].date) : x(eci.trend && eci.trend.fit ? eci.trend.fit.anchor.date : h.date);
+    const xb = i + 1 < hist.length ? x(hist[i + 1].date) : x(Math.max(capDate(h.date).getTime(), capDate(eci.csvDate || h.date).getTime()));
     return (i === 0 ? `M${xa},${ya}` : `L${xa},${ya}`) + `L${xb},${ya}`;
   }).join("");
   const band = curve.length ? "M" + curve.map(c => `${x(c.date)},${y(c.p75)}`).join("L") + "L" + [...curve].reverse().map(c => `${x(c.date)},${y(c.p25)}`).join("L") + "Z" : "";
   const p50 = curve.length ? "M" + curve.map(c => `${x(c.date)},${y(c.p50)}`).join("L") : "";
   const runDay = CAP && CAP.generatedAt ? CAP.generatedAt.slice(0, 10) : null;
-  // Every label is its head alone -- the model or ensemble and its median,
-  // centred under the lowest mark; the LEAP label is its head, left of its
-  // box. The ranges and the dates live in the hover tooltip (Nick,
-  // 2026-09-03: left of the boxes the three-line labels ran into each other
-  // on a small screen; 2026-09-11: the narrow treatment at every width).
-  const labels = fc.map(v => {
-    const e = v.forecast.ensemble, ms = v.forecast.models;
-    const who = ms.length === 1 ? ms[0].label : "ensemble";
-    const head = (fc.length > 1 ? v.label + " · " : "") + (narrow ? "" : who + " ") + capFmtEci(e.p50);
-    return { who, head };
-  });
-  // The lowest mark near the forecasts: the heads sit under it.
-  const floor = Math.min(...fc.map(v => v.forecast.ensemble.p10 != null ? v.forecast.ensemble.p10 : v.forecast.ensemble.p25), ...lpPts.map(p => p.p25));
   return (
     <div ref={box} style={{ position: "relative", minWidth: 0 }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} onMouseLeave={() => setHv(null)}>
@@ -110,24 +116,21 @@ function EciTrendChart({ eci, variants, active, onPick }) {
           <circle key={h.date + h.model} cx={x(h.date)} cy={y(h.score)} r={hv && hv.model === h.model ? 5 : 3.5}
             fill="var(--ink)" stroke="var(--panel)" strokeWidth="1.5" onMouseEnter={() => setHv({ x: x(h.date), y: y(h.score), model: h.model, title: h.model, lines: ["ECI " + h.score.toFixed(1) + " · " + capFmtDate(h.date)] })} style={{ cursor: "default" }} />
         ))}
-        {fc.map((v, i) => {
+        {fc.map(v => {
           const on = v.key === active;
-          const n = v.forecast.models.length;
           const xc = x(v.targetDate);
           // The ensemble: with one model, that model's own numbers.
           const e = v.forecast.ensemble;
-          const { who, head } = labels[i];
-          // The head alone, centred under the lowest mark; the quartiles,
-          // the 10th–90th and the date are in the tooltip.
-          const bw = narrow ? 12 : 16;
-          const half = bw / 2;
-          const lx = xc, ly = y(floor) + 16;
-          const tip = { x: xc, y: y(e.p75), title: (fc.length > 1 ? v.label + " · " : "") + who + ": median " + capFmtEci(e.p50),
-            lines: ["25–75th " + capFmtEci(e.p25) + "–" + capFmtEci(e.p75),
-                    ...(e.p10 != null && e.p90 != null ? ["10–90th " + capFmtEci(e.p10) + "–" + capFmtEci(e.p90)] : []),
-                    capFmtDate(v.targetDate) + (n > 1 ? " · " + n + " models" : "")] };
+          const bw = narrow ? 12 : 16, half = bw / 2;
+          const forecastDay = v.instrumentInfo && v.instrumentInfo.runDate;
+          const tip = { x: xc, y: y(e.p75), title: "AIRO ensemble" + (fc.length > 1 ? " · " + v.label : ""),
+            made: forecastDay ? capFmtDate(forecastDay) : "Date unavailable",
+            target: capFmtDate(v.targetDate), rows: [{ label: "Ensemble", ...e }, ...v.forecast.models] };
           return (
-            <g key={v.key} opacity={on ? 1 : 0.4} onClick={() => onPick && onPick(v.key)} onMouseEnter={() => setHv(tip)} style={{ cursor: "pointer" }}>
+            <g key={v.key} data-eci-forecast="airo" opacity={on ? 1 : 0.4} tabIndex="0" role="button" aria-label={tip.title + ", forecast made " + tip.made}
+              onClick={() => { setHv(tip); onPick && onPick(v.key); }} onMouseEnter={() => setHv(tip)} onFocus={() => setHv(tip)} onBlur={() => setHv(null)}
+              onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setHv(tip); onPick && onPick(v.key); } }} style={{ cursor: "pointer" }}>
+              <rect x={xc - half - 5} y={y(e.p90 ?? e.p75) - 5} width={bw + 10} height={Math.max(12, y(e.p10 ?? e.p25) - y(e.p90 ?? e.p75) + 10)} fill="transparent" />
               {/* Whiskers to the 10th and 90th percentiles (A4, asked since
                   2026-09-02); a day whose rows carry only the quartiles draws
                   the box alone. */}
@@ -139,32 +142,30 @@ function EciTrendChart({ eci, variants, active, onPick }) {
               </g>}
               <rect x={xc - half} y={y(e.p75)} width={bw} height={Math.max(2, y(e.p25) - y(e.p75))} rx="2" fill="var(--ink)" fillOpacity="0.14" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" />
               <line x1={xc - half} x2={xc + half} y1={y(e.p50)} y2={y(e.p50)} stroke="var(--ink)" strokeWidth="2.5" />
-              <text x={lx} y={ly} textAnchor="middle" fontSize="12" fontWeight="600" fill="var(--ink)" paintOrder="stroke" stroke="var(--panel)" strokeWidth="3" strokeLinejoin="round">{head}</text>
             </g>
           );
         })}
         {lpPts.map(p => {
           const xc = x(p.date);
           const bw = narrow ? 12 : 16, half = bw / 2;
-          // Label to the LEFT of the box, its top line at the p75 cap: the
-          // models' box and label sit to the right, two months on, and the
-          // frontier's last step runs below.
-          const lx = xc - half - 8, ly = y(p.p75) + 4;
-          const tip = { x: xc, y: y(p.p75), title: "LEAP superforecasters: median " + capFmtEci(p.p50),
-            lines: ["25–75th " + capFmtEci(p.p25) + "–" + capFmtEci(p.p75), capFmtDate(p.date) + " · n=" + p.n] };
+          const fielded = (lp.fielded || []).map(capFmtDate);
+          const tip = { x: xc, y: y(p.p75), title: "LEAP superforecasters",
+            made: fielded.length ? fielded.join(" – ") : "Date unavailable",
+            target: capFmtDate(p.date), rows: [{ label: "Superforecasters", ...p }], n: p.n };
           return (
-            <g key={"leap" + p.date} onMouseEnter={() => setHv(tip)}>
+            <g key={"leap" + p.date} data-eci-forecast="leap" tabIndex="0" role="img" aria-label={tip.title + ", forecasts made " + tip.made}
+              onMouseEnter={() => setHv(tip)} onClick={() => setHv(tip)} onFocus={() => setHv(tip)} onBlur={() => setHv(null)}>
+              <rect x={xc - half - 5} y={y(p.p75) - 5} width={bw + 10} height={Math.max(12, y(p.p25) - y(p.p75) + 10)} fill="transparent" />
               <rect x={xc - half} y={y(p.p75)} width={bw} height={Math.max(2, y(p.p25) - y(p.p75))} rx="2" fill="var(--panel)" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" strokeDasharray="3 2" />
               <path d={`M${xc},${y(p.p50) - 6}L${xc + 6},${y(p.p50)}L${xc},${y(p.p50) + 6}L${xc - 6},${y(p.p50)}Z`} fill="var(--ink)" />
-              <text x={lx} y={ly} textAnchor="end" fontSize="12" fontWeight="600" fill="var(--ink)" paintOrder="stroke" stroke="var(--panel)" strokeWidth="3" strokeLinejoin="round">{(narrow ? "LEAP " : "LEAP supers ") + capFmtEci(p.p50)}</text>
             </g>
           );
         })}
       </svg>
       {hv && (
-        <PointTooltip box={box} x={hv.x} y={hv.y}>
+        <PointTooltip box={box} x={hv.x} y={hv.y} maxWidth={520}>
           <div style={{ fontWeight: 600 }}>{hv.title}</div>
-          {hv.lines.map(t => <div key={t} className="mono" style={{ color: "var(--ink-soft)" }}>{t}</div>)}
+          {hv.rows ? <EciForecastTooltip forecast={hv} /> : hv.lines.map(t => <div key={t} className="mono" style={{ color: "var(--ink-soft)" }}>{t}</div>)}
         </PointTooltip>
       )}
     </div>
@@ -190,6 +191,11 @@ function CapabilityPanel({ onDefinitions }) {
   const hz = q.horizons.includes(horizon) ? horizon : q.horizons[0];
   const cell = q.byHorizon[hz];
   const eci = CAP.eci;
+  const trendStatus = eci.trend.freshness || {};
+  const trendAge = (Date.now() - Date.parse((trendStatus.snapshotDate || eci.trend.dataDate) + "T00:00:00Z")) / 86400000;
+  const trendStale = !Number.isFinite(trendAge) || trendAge > (trendStatus.maxAgeDays || 7)
+    || (trendStatus.problems || []).length > 0;
+
 
   return (
     <React.Fragment>
@@ -214,10 +220,10 @@ function CapabilityPanel({ onDefinitions }) {
           <EciTrendChart eci={eci} variants={variants} active={vkey} onPick={k => { setVkey(k); setPicked(null); }} />
         </div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 2, background: "var(--ink)" }}></span>Frontier ECI</span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 2, background: "var(--ink)" }}></span>Frontier ECI (Epoch {eci.csvDate})</span>
           <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--ink)" fillOpacity="0.14" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" /><line x1="1.5" x2="12.5" y1="9" y2="9" stroke="var(--ink)" strokeWidth="2.5" /></svg>Ensemble's ECI percentiles</span>
           {CAP && CAP.leap && <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><svg width="14" height="18" viewBox="0 0 14 18"><rect x="1.5" y="2" width="11" height="14" rx="2" fill="var(--panel)" stroke="var(--ink)" strokeOpacity="0.75" strokeWidth="1.5" strokeDasharray="3 2" /><path d="M7,5L11,9L7,13L3,9Z" fill="var(--ink)" /></svg><span>LEAP supers (<a href={CAP.leap.url}>Wave 5</a>)</span></span>}
-          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>)</span></span>
+          <span style={{ fontSize: 12.5, color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 18, height: 10, background: "var(--ink-faint)", opacity: 0.25 }}></span><span>ECI trend (<a href={eci.trend.url}>Peter Wildeford</a>, {eci.trend.dataDate}){trendStale && <strong title={(trendStatus.problems || []).join("; ") || "Projection data is more than seven days old"}> · Stale / awaiting refresh</strong>}</span></span>
         </div>
       </Panel>
 

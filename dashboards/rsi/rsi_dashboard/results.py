@@ -5,7 +5,7 @@ from datetime import date
 from statistics import median
 
 from .conditions import DOMAINS
-from .instrument import fields, selected_sections, survey_prompt, validate
+from .instrument import fields, original_survey, parse, selected_sections, survey_prompt, validate
 
 
 def read(path):
@@ -16,13 +16,17 @@ def load_run(folder, source, sections):
     plan = read(folder / "plan.json")
     ensemble = read(folder / "ensemble.json")
     digest = hashlib.sha256(plan["prompt"].encode()).hexdigest()
+    if plan["survey"] != source:
+        if not original_survey(plan["survey"]):
+            raise ValueError(f"{folder}: unrecognized frozen survey")
+        sections = parse(plan["survey"])
     if (plan["condition"] != "baseline" or ensemble["condition"] != "baseline"
-            or plan["survey"] != source or digest != plan["prompt_sha256"]
+            or digest != plan["prompt_sha256"]
             or digest != ensemble["prompt_sha256"] or plan["date"] != ensemble["date"]):
         raise ValueError(f"{folder}: instrument or run metadata mismatch")
     if "excluded_questions" in plan:
         excluded = plan["excluded_questions"]
-        expected = f"Today is {plan['date']}.\n\n{survey_prompt(source, excluded)}\n\nSubmit your answers using submit_forecast."
+        expected = f"Today is {plan['date']}.\n\n{survey_prompt(plan['survey'], excluded)}\n\nSubmit your answers using submit_forecast."
         if expected != plan["prompt"]:
             raise ValueError(f"{folder}: eligibility differs from the frozen prompt")
         sections = selected_sections(sections, excluded)
@@ -56,9 +60,41 @@ def load_run(folder, source, sections):
             "web_access": access or "legacy", "date": plan["date"], "answers": answers, "models": models}
 
 
+# The original delivery used per-question rationales and five prompts per model.
+OCTOBER_DELIVERY = "2026-10-29-airo-forecasts.json"
+OCTOBER_SHA256 = "a39f338a44cddc62d698fde78ec62210ab53e454c3805d907769ea8973ba74b8"
+
+
+def load_october_delivery(path, sections):
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != OCTOBER_SHA256:
+        raise ValueError("October 29 forecast delivery checksum mismatch")
+    delivery = json.loads(data)
+    labels = {"anthropic/claude-opus-5-5": "Opus 5.5", "openai/responses/gpt-6-astra": "GPT-6 Astra",
+              "anthropic/claude-sonnet-5-5": "Sonnet 5.5", "anthropic/claude-fable-5-1": "Fable 5.1"}
+    models = []
+    answers = {}
+    for model, forecasts in delivery["models"].items():
+        model_answers, reasons = {}, {}
+        for section in sections:
+            for q in section["questions"]:
+                if q["id"] == "Q3.5":  # Introduced after the October delivery.
+                    continue
+                key = q["id"].lower().replace(".", "_")
+                model_answers[q["id"]] = {f: forecasts[key][f] for f in fields(q)}
+                reasons[q["id"]] = forecasts[key]["rationales"]
+                answers[q["id"]] = delivery["ensemble"][key]
+        models.append({"id": model, "label": labels[model], "answers": model_answers,
+                       "question_rationales": reasons})
+    return {"id": "2026-10-29-airo", "date": "2026-10-29", "web_access": "full-web",
+            "method": "AIRO five-prompt average per model, then median across models",
+            "models": models, "answers": answers}
+
+
 def load_runs(root, source, sections, publication=False):
     """Read single-condition runs and paired batches from the runner's output."""
-    runs = []
+    delivery = root / OCTOBER_DELIVERY
+    runs = [load_october_delivery(delivery, sections)] if delivery.exists() else []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         plan_path = folder / "plan.json"
         if not plan_path.is_file():

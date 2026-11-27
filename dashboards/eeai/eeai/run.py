@@ -10,7 +10,7 @@ one failed model does not lose the others; the run exits 1 if any call failed.
 A call's first row carries what belongs to the whole call under `call`: the
 Part 1 answers, the sources, the research evidence, what it cost, the prompt.
 
-Search is not optional: without TAVILY_API_KEY every model still answers, from
+Search is not optional: without the selected search API key every model still answers, from
 memory with no current evidence, and the run looks the same from outside, so
 the runner refuses unless told --allow-ungrounded.
 """
@@ -35,6 +35,10 @@ def ask(member, survey, history, today, run_id, *, panel=None, retries=1, harnes
         synthetic=False):
     """One call. -> rows, one per question, the first carrying `call`."""
     from fri_forecaster import baseline
+    from fri_forecaster.tool_cli import SEARCH_ENV, search_name
+
+    search = (env or {}).get(SEARCH_ENV) or search_name()
+    env = dict(env or {}, **{SEARCH_ENV: search})
     original = survey
     base = os.environ.get("EEAI_PI_DIR") or os.path.join(tempfile.gettempdir(), "eeai-pi")
     from fri_forecaster.tools import BLOCK_ENV
@@ -71,7 +75,7 @@ def ask(member, survey, history, today, run_id, *, panel=None, retries=1, harnes
     evidence = [{k: e.get(k) for k in ("tool", "args", "result")} for e in res.get("evidence") or []]
     hits = sum(len((e.get("result") or {}).get("results") or []) for e in evidence if e["tool"] == "web_search")
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    call = {"part1": part1, "part1_problems": part1_problems, "rationale": answer.get("rationale"),
+    call = {"search": search, "part1": part1, "part1_problems": part1_problems, "rationale": answer.get("rationale"),
             "key_sources": answer.get("key_sources"), "evidence": evidence, "search_hits": hits,
             "grounded": hits > 0, "usage": usage, "cost_usd": round(sum(u.get("cost_usd") or 0 for u in usage), 6),
             "delivery": res.get("delivery"), "attempts": attempts, "values": got, "values_asked": want,
@@ -121,18 +125,16 @@ def main(args):
     history = S.history(current(today))
     input_snapshot = {"baseline_sha256": hashlib.sha256(json.dumps(history, sort_keys=True).encode()).hexdigest()}
     members, provenance = select_members(args)
+    from fri_forecaster import keys
+    from fri_forecaster.tool_cli import SEARCH_ENV, SEARCH_KEYS, search_name
+
+    search = search_name()
     harness_run = None
     if args.synthetic:
         if not args.out:
             sys.exit("--synthetic rows are made up: give them a directory with --out (never results/)")
         from . import synthetic
         harness_run = synthetic.harness_run(survey, history, today)
-    else:
-        from fri_forecaster import keys
-        have = keys.load_keys()
-        if "TAVILY_API_KEY" not in have and not args.allow_ungrounded:
-            sys.exit("TAVILY_API_KEY is not set: the models would answer from memory with no search. "
-                     "Set it (fri_forecaster.keys says where) or pass --allow-ungrounded.")
     runs = args.out or config.RUNS
     os.makedirs(runs, exist_ok=True)
     now = datetime.now(timezone.utc)
@@ -148,6 +150,7 @@ def main(args):
             have = [json.loads(line) for line in f if line.strip()]
         today = date.fromisoformat(have[0]["run_date"])
         original_call = next(r["call"] for r in have if r.get("call"))
+        search = original_call.get("search", "tavily")
         input_snapshot = have[0].get("input_snapshot")
         survey = original_call.get("question_set") or dict(survey, instrument=have[0]["instrument"])
         history = original_call.get("history") or S.history(config.HISTORY)
@@ -161,6 +164,10 @@ def main(args):
         members = [m for m in members if m["key"] not in done]
         if not members:
             sys.exit(f"--resume {args.resume}: every selected model has already answered")
+    key = SEARCH_KEYS.get(search)
+    have_keys = keys.load_keys() if not args.synthetic else ()
+    if not args.synthetic and key and key not in have_keys and not args.allow_ungrounded:
+        sys.exit(f"{key} is not set. Set it or pass --allow-ungrounded.")
     print(f"{config.EXPERIMENT} / {config.CONDITION} [{survey['instrument']}]: {len(survey['questions'])} questions, "
           f"{S.n_values(survey, today)} values + Part 1, {len(members)} model(s): {', '.join(m['label'] for m in members)}"
           f"{' -- SYNTHETIC, no calls' if args.synthetic else ''}", flush=True)
@@ -169,7 +176,7 @@ def main(args):
 
     def one(member):
         rows = ask(member, survey, history, today, run_id, panel=provenance, retries=args.retries,
-                   harness_run=harness_run, synthetic=args.synthetic)
+                   harness_run=harness_run, env={SEARCH_ENV: search}, synthetic=args.synthetic)
         if not rows:
             return rows
         with lock, open(path, "a", encoding="utf-8") as f:

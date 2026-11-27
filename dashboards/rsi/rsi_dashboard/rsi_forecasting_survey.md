@@ -4,7 +4,7 @@ The Forecasting Research Institute (FRI) runs this survey on recursive self-impr
 
 ## How to answer
 
-The survey has 18 forecasting questions in 5 sections.
+The survey has 19 forecasting questions in 5 sections.
 
 - For a yes-or-no question, give a probability from 0 to 100. If you think the probability is 25%, type 25.
 - For a numeric question, give three values. P10: you think there is a 10% chance that the true value is below this number. P50: your median. P90: you think there is a 90% chance that the true value is below this number.
@@ -163,6 +163,14 @@ Resolution: This is a conditional question. It will resolve only if a fast year 
 AI automation of AI R&D caused the first fast year if it was the direct or proximate cause of the rise in the ECI frontier, or if the first fast year would not have occurred, or would have counterfactually been extremely unlikely to occur, “but for” the substantial involvement of AI in the AI R&D behind the models that raised the ECI frontier during that fast year. Other causes, such as more training compute, can also contribute.
 
 Since no one can observe what would have happened without AI, this question is partly hypothetical. We will aim to resolve it with the best evidence available (which may include, for example, the AI companies’ own assessments, such as Anthropic’s test of whether a doubling of the rate of progress in AI aggregate capabilities is “*substantially attributable to the automation of research and/or engineering*” ([Responsible Scaling Policy v3.4](https://www-cdn.anthropic.com/files/4zrzovbb/website/0bacdc8440ea96e62a8766d99ebe1d4eea6d5f3a.pdf)), or asking a panel of AI experts).
+
+### Q3.5 Cause of the first fast year by 2027
+
+**If a fast year happens by Dec 31, 2027: what is the probability that AI automation of AI R&D caused the first fast year?**
+
+Answer: a probability from 0 to 100.
+
+Resolution: This question resolves only if a fast year happens on or before Dec 31, 2027 (Q3.1). Apply the same definition of the first fast year, causal criteria and evidence as in Q3.4.
 
 ## 4. Internal lead
 

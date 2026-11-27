@@ -121,7 +121,7 @@ model_set = "frontier5"
         h = experiments.condition_sha256(base)
         self.assertEqual(h, experiments.condition_sha256(dict(base, publish=True, repeats=3)))
         for k, v in (("variant", "recent"), ("harness", "other"), ("model_set", "frontier5"),
-                     ("url_block_patterns", "x"), ("scenarios", "data/axes_conditions.json")):
+                     ("url_block_patterns", "x"), ("scenarios", "data/axes_conditions.json"), ("search", "tavily")):
             self.assertNotEqual(h, experiments.condition_sha256(dict(base, **{k: v})), k)
         self.assertEqual(AIRO["conditions"]["none"]["sha256"],
                          experiments.condition_sha256({k: AIRO["conditions"]["none"][k] for k in experiments.DEFAULTS}))
@@ -135,6 +135,7 @@ model_set = "frontier5"
                 ('[conditions.a]\nharness = "litellm"\n', "harness 'litellm' is not one of"),
                 ('[conditions.a]\nurl_block_patterns = "(x"\n', "bad url_block_patterns"),
                 ('[conditions.a]\nvariant = "nope"\n', "unknown variant"),
+                ('[conditions.a]\nsearch = "bing"\n', "search 'bing' is not one of"),
                 ('[conditions.a]\nrepeats = 0\n', "repeats"),
                 ('', "no \\[conditions")):
             with self.assertRaisesRegex(ValueError, why):
@@ -302,7 +303,7 @@ class TestRunOneJoint(unittest.TestCase):
         self.assertEqual(rows[0]["system_prompt"], ru.MINIMAL_SYSTEM)
         self.assertTrue(all(r["forecasts"] for r in rows))
         # A pooled call: no guard reaches the loop, and the rows are as before.
-        self.assertNotIn("env", seen)
+        self.assertEqual(seen["env"], {ru.SEARCH_ENV: "exa"})
         self.assertFalse(any("url_block_patterns" in r or "pooled" in r for r in rows))
 
     def test_the_sixth_runs_guarded_and_its_rows_say_so(self):
@@ -311,7 +312,7 @@ class TestRunOneJoint(unittest.TestCase):
         # The sentence where a variant's text goes; the guard to THIS call only.
         self.assertIn(ru.VARIANTS["ai-banned"], seen["prompt"])
         self.assertLess(seen["prompt"].index(ru.VARIANTS["ai-banned"]), seen["prompt"].index("Deliver the probabilities"))
-        self.assertEqual(seen["env"], {ru.BLOCK_ENV: guard})
+        self.assertEqual(seen["env"], {ru.BLOCK_ENV: guard, ru.SEARCH_ENV: "exa"})
         self.assertNotIn(ru.BLOCK_ENV, ru.os.environ)
         self.assertEqual(seen["system"], ru.MINIMAL_SYSTEM)
         # The rows: the condition, the guard, unpooled; the protocol is the set's.
@@ -322,11 +323,16 @@ class TestRunOneJoint(unittest.TestCase):
         self.assertTrue(rows[0]["call_id"].endswith(":ai-banned"))
         self.assertTrue(all(r["forecasts"] for r in rows))
 
+    def test_a_condition_on_another_search_backend(self):
+        rows, seen = self._call("none", search="keenable")
+        self.assertEqual(seen["env"], {ru.SEARCH_ENV: "keenable"})      # the backend to THIS call only
+        self.assertEqual({r["search"] for r in rows}, {"keenable"})
+
     def test_a_process_environment_guard_is_stamped_on_every_row(self):
         # #5's stamping: a guard in os.environ reaches every call and every row says so.
         with patch.dict("os.environ", {ru.BLOCK_ENV: "example\\.org"}):
             rows, seen = self._call("none")
-        self.assertNotIn("env", seen)
+        self.assertEqual(seen["env"], {ru.SEARCH_ENV: "exa"})
         self.assertEqual({r["url_block_patterns"] for r in rows}, {"example\\.org"})
         self.assertFalse(any("pooled" in r for r in rows))
 

@@ -15,7 +15,7 @@ def test_baseline_run_recovers_only_missing_member(tmp_path, monkeypatch):
     members = [{"key": key, "model": "fake/" + key} for key in ("first", "second")]
     monkeypatch.setattr(run, "PROJECT", tmp_path)
     monkeypatch.setattr(run.panel, "panel", lambda **kwargs: (members, {"snapshot": datetime.now(timezone.utc).date().isoformat()}))
-    monkeypatch.setattr(run.keys, "load_keys", lambda: ["TAVILY_API_KEY"])
+    monkeypatch.setattr(run.keys, "load_keys", lambda: ["EXA_API_KEY"])
     calls = []
 
     def scripted(**kwargs):
@@ -47,7 +47,8 @@ def test_baseline_run_recovers_only_missing_member(tmp_path, monkeypatch):
     run.main()
     assert sorted(calls) == ["fake/first", "fake/second", "fake/second"]
     ensemble = json.loads((out / "ensemble.json").read_text())
-    assert len(ensemble["answers"]) == 18
+    assert len(ensemble["answers"]) == 19
+    assert ensemble["answers"]["Q3.5"] == {"probability": 50}
     assert ensemble["answers"]["Q5.1"]["probability"] == 60
 
     # The dashboard consumes the completed runner output and verifies its median
@@ -69,7 +70,7 @@ def test_paired_conditions_freeze_one_panel_and_never_pool_answers(tmp_path, mon
     members = [{"key": "one", "model": "fake/first"}]
     day = datetime.now(timezone.utc).date().isoformat()
     monkeypatch.setattr(run.panel, "panel", lambda **kwargs: (members, {"snapshot": day}))
-    monkeypatch.setattr(run.keys, "load_keys", lambda: ["TAVILY_API_KEY"])
+    monkeypatch.setattr(run.keys, "load_keys", lambda: ["EXA_API_KEY"])
     calls = []
 
     def scripted(**kw):
@@ -87,8 +88,8 @@ def test_paired_conditions_freeze_one_panel_and_never_pool_answers(tmp_path, mon
     assert [r["answers"]["Q3.2"]["probability"] for r in runs] == [40, 20]
     assert [r["web_access"] for r in runs] == ["full-web", "fri-blocked"]
     assert calls[0][0] == calls[1][0]
-    assert [env for _, env in calls] == [{BLOCK_ENV: "", BLOCK_DOMAINS_ENV: ""},
-                                         {BLOCK_ENV: "", BLOCK_DOMAINS_ENV: "forecastingresearch.org"}]
+    assert [env for _, env in calls] == [{"FORECASTER_SEARCH": "exa", BLOCK_ENV: "", BLOCK_DOMAINS_ENV: ""},
+                                         {"FORECASTER_SEARCH": "exa", BLOCK_ENV: "", BLOCK_DOMAINS_ENV: "forecastingresearch.org"}]
     monkeypatch.setattr(sys, "argv", ["run", "--resume", str(pair)])
     run.main()
     assert len(calls) == 2
@@ -98,12 +99,39 @@ def test_paired_conditions_freeze_one_panel_and_never_pool_answers(tmp_path, mon
     with pytest.raises(ValueError, match="incomplete run"):
         load_runs(tmp_path, source, parse(source), publication=True)
 
+
 def test_resolved_rsi_question_excluded_from_both_prompt_and_tools():
     from rsi_dashboard.instrument import selected_sections, survey_prompt
     text = run.SOURCE.read_text()
     excluded = ["Q1.1"]
-    assert "### Q1.1 " not in survey_prompt(text, excluded)
-    assert "### Q1.2 " in survey_prompt(text, excluded)
+    prompt = survey_prompt(text, excluded)
+    assert "18 forecasting questions in 5 sections" in prompt
+    assert "### Q1.1 " not in prompt
+    assert "### Q1.2 " in prompt
     selected = selected_sections(parse(text), excluded)
     schema = run.submission_tool(selected)["parameters"]["properties"]["answers"]
     assert "Q1.1" not in schema["properties"] and "Q1.2" in schema["required"]
+
+
+def test_original_run_publishes_alongside_new_instrument(tmp_path):
+    import hashlib
+    import re
+    from rsi_dashboard.results import load_run
+
+    source = run.SOURCE.read_text()
+    original = re.sub(r"### Q3\.5 .*?(?=## 4\.)", "", source, flags=re.S).replace(
+        "19 forecasting questions", "18 forecasting questions")
+    response = synthetic(parse(original))
+    digest = hashlib.sha256(original.encode()).hexdigest()
+    meta = {"condition": "baseline", "date": "2026-11-20", "prompt_sha256": digest}
+    plan = dict(meta, survey=original, prompt=original, members=[{"model": "test", "key": "one"}])
+    run.save(tmp_path / "plan.json", plan)
+    run.save(tmp_path / "one.json", dict(model="test", prompt_sha256=digest, response=response))
+    run.save(tmp_path / "ensemble.json", dict(meta, models=["test"], answers=response["answers"]))
+
+    published = load_run(tmp_path, source, parse(source))
+    assert published["answers"] == response["answers"]
+    assert "Q3.5" not in published["answers"]
+    run.save(tmp_path / "plan.json", dict(plan, survey=original + "unrecognized revision"))
+    with pytest.raises(ValueError, match="unrecognized frozen survey"):
+        load_run(tmp_path, source, parse(source))

@@ -15,10 +15,8 @@ import os
 
 # The keys come from the installation's one keys file, through the engine
 # (fri_forecaster.keys: $FORECASTER_ENV_FILE, else ~/.config/fri-forecaster/env),
-# as every other project's do. TAVILY is the one that is load-bearing rather
-# than optional: run_unified.py refuses to run without it rather than quietly
-# publishing forecasts that the provenance line says were web-grounded but were
-# not. It serves both grounding tools (web_search and read_page).
+# as every other project's do. run_unified.py checks the selected backend's
+# search credential before starting. It serves both web_search and read_page.
 from . import eci as _eci  # noqa: E402,F401  (puts packages/forecaster on the path in a bare checkout)
 from fri_forecaster import keys as _keys  # noqa: E402
 
@@ -32,7 +30,7 @@ def load_keys():
     Best-effort by design: a missing file or a missing provider just means that
     provider stays unconfigured, and an Anthropic-only run still works. Callers
     that actually need a specific key check for it themselves after calling this
-    (run_unified.py refuses to start without TAVILY_API_KEY). Returns the sorted
+    (run_unified.py checks the selected search backend's credential). Returns the sorted
     names of the keys that ARE configured afterwards, for logging.
     """
     return _keys.load_keys()

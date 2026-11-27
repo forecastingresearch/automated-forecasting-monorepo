@@ -70,8 +70,10 @@ class Shadow(unittest.TestCase):
         for c in experiments.load("airo")["conditions"].values():
             if c["news_cache"]:
                 continue
-            old = {k: c[k] for k in experiments.DEFAULTS if k not in experiments.UNHASHED and k not in ("news_cache", "max_turns", "prior_baseline", "prior_self", "recent_news")}
-            self.assertEqual(c["sha256"], hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest())
+            old = {k: c[k] for k in experiments.DEFAULTS if k not in experiments.UNHASHED and k not in ("news_cache", "max_turns", "prior_baseline", "prior_self", "recent_news", "search")}
+            self.assertEqual(experiments.condition_sha256(dict(c, search="tavily")),
+                             hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest())
+            self.assertNotEqual(c["sha256"], experiments.condition_sha256(dict(c, search="tavily")))
 
     def prepare(self, folder):
         recent_news.poll(FEEDS, folder, get=fake_get, resolve=fake_resolve, now="2026-10-12T16:00:00Z")
@@ -174,7 +176,7 @@ class Shadow(unittest.TestCase):
         from fri_forecaster.tool_cli import read_page
         with patch.dict(os.environ, {news_shadow.PATH_ENV: "", news_shadow.HASH_ENV: ""}):
             self.assertIn("error", read_page(news_shadow.URL))
-        with patch("fri_forecaster.tools.read_page", return_value={"text": "ordinary web"}) as web:
+        with patch("fri_forecaster.exa_tools.read_page", return_value={"text": "ordinary web"}) as web:
             self.assertEqual(read_page("https://example.test"), {"text": "ordinary web"})
             web.assert_called_once_with("https://example.test", 0)
 

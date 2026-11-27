@@ -907,3 +907,72 @@ def test_dashboard_refresh_registration_and_default_schedule(monkeypatch):
     override = dict(job, daily_utc="08:00")
     assert not list(p.due_jobs([override], at))
     assert list(p.due_jobs([override], at.replace(hour=8, minute=0))) == [("survey-evidence-20300101", override)]
+
+
+def test_wait_polls_pinned_commit_until_required_checks_pass(runtime, monkeypatch):
+    runtime.config.update(repository='test', github_repository='example/project')
+    sha = 'b' * 40
+    checks = [{'id': i, 'name': name, 'status': 'completed', 'conclusion': 'success',
+               'app': {'slug': 'github-actions'}} for i, name in enumerate(p.REQUIRED_CHECKS)]
+    replies = iter([[], checks])
+    def answer(argv):
+        if argv[0] == 'gh':
+            assert sha in argv[2]
+            return json.dumps({'check_runs': next(replies)})
+        return sha
+    monkeypatch.setattr(p, 'output', answer)
+    monkeypatch.setattr(p, 'run', lambda *a: None)
+    monkeypatch.setattr(p.time, 'sleep', lambda seconds: None)
+    assert runtime.merged_sha(sha, wait=True) == sha
+
+
+def test_forecastbench_status_uses_round_env_without_operation_lock(runtime, capfd):
+    active = release(runtime, 'active')
+    p.link(active, runtime.current)
+    conf = runtime.home / '.config/fri-forecaster/round.env'
+    conf.parent.mkdir(parents=True)
+    conf.write_text('ROUNDS_DIR="$HOME/saved rounds"\nPY=/bin/echo\n')
+    rounds = runtime.home / 'saved rounds'
+    for name in ['2030-01-01', '2030-01-15', '2030-02-01-rehearsal']:
+        (rounds / name).mkdir(parents=True)
+    with runtime.lock():
+        runtime.forecastbench_status(history=True)
+    assert f'{rounds}/2030-01-15 --history' in capfd.readouterr().out
+    runtime.forecastbench_status('2030-01-01', require_uploaded=True)
+    assert f'{rounds}/2030-01-01 --require-uploaded' in capfd.readouterr().out
+
+
+def test_eci_check_runs_daily_without_forecasts_or_publication(runtime, monkeypatch):
+    r = release(runtime, 'eci')
+    p.link(r, runtime.current)
+    calls = []
+    monkeypatch.setattr(p, 'run', lambda *args, **kw: calls.append(args[0]))
+    monkeypatch.setattr(runtime, 'save_generated_data', lambda code, **kw: calls.append(kw))
+    job = {'id': 'eci-upstream', 'kind': 'eci-upstream', 'daily_utc': '11:30'}
+    p.validate_jobs([job])
+    assert p.lane_for(job) == 'refresh'
+    for day in (23, 25, 27, 29):
+        assert list(p.due_jobs([job], datetime(2026, 11, day, 11, 30, tzinfo=timezone.utc)))
+    assert runtime.execute_job('eci-test', job)
+    assert list(map(str, calls[0]))[-3:] == ['-m', 'redlines.eci_trend', '--check-only']
+    assert calls[-1] == {'patterns': ('eci_trend_status.json',)}
+    assert not (r / 'site/index.html').exists()
+
+
+def test_eci_refresh_cache_survives_data_deployment(runtime, monkeypatch):
+    published_release(runtime)
+    runtime.state.joinpath('data').mkdir(parents=True)
+    p.write_json(runtime.state / 'data/eci_trend_current.json', {'vintage': 'old'})
+    def publication(site):
+        (site / 'index.html').write_bytes(dashboard('new', 20))
+        for name in p.DATA_FILES:
+            (site / name).write_text('new')
+    fake_install(runtime, monkeypatch, publication)
+    original = runtime.build_data
+    def build(code, site, env, **kw):
+        original(code, site, env, **kw)
+        p.write_json(code / p.AIRO / 'data/eci_trend_current.json', {'vintage': 'new'})
+        p.write_json(code / p.AIRO / 'data/eci_trend_status.json', {'problems': []})
+    monkeypatch.setattr(runtime, 'build_data', build)
+    runtime.deploy(publish_data=True)
+    assert json.loads((runtime.state / 'data/eci_trend_current.json').read_text()) == {'vintage': 'new'}

@@ -1,5 +1,9 @@
 # ForecastBench submission setup
 
+Automatic rounds are currently paused. The machinery below is retained, but
+`packages/ops/jobs.json` contains no ForecastBench jobs. Resume scheduling only
+after an explicit decision to do so, by adding reviewed round entries and deploying.
+
 The scheduled round script builds and validates submission files, uploads them
 with a dedicated service account, and reports success or pages on failure.
 Installations must configure the private upload settings before enabling it.
@@ -111,7 +115,7 @@ Do not place a test forecast into a live round without their agreement.
 
 For a real submission, configure the destination from the round invitation and
 run the upload-only command (also used by `scripts/fb_cron.sh` after a successful
-round). This retries saved forecasts without any paid model calls:
+build). This retries saved forecasts without any paid model calls:
 
 ```sh
 set -a
@@ -119,6 +123,15 @@ source "$HOME/.config/fri-forecaster/round.env"
 set +a
 "$PY" -m forecastbench.upload --root "$ROUNDS_DIR/YYYY-MM-DD"
 ```
+
+Add `--set-number N` to recover a single validated set while other builds are
+pending. Use its original set number from the private registry.
+
+The round's `CALLS` setting bounds concurrent forecasts across the submitted
+sets. The first set has priority for available workers. Other sets start as
+workers free up, and each set uploads when its members pass validation. A set
+that fails validation can retry its members once. Scoring-only conditions
+start after the submitted sets finish successfully.
 
 The uploader selects only the registry's submitted conditions, checks each
 file's identity, build hashes, aggregate coverage and every member's coverage,
@@ -143,3 +156,20 @@ References: [service-account creation](https://docs.cloud.google.com/iam/docs/se
 [service-account keys](https://docs.cloud.google.com/iam/docs/keys-create-delete),
 [CLI authentication](https://docs.cloud.google.com/sdk/docs/authenticate),
 [Cloud Storage uploads](https://docs.cloud.google.com/sdk/gcloud/reference/storage/cp).
+
+### Inspect a running round
+
+Run `airo forecastbench-status` for the latest dated round. Add
+`--due YYYY-MM-DD --history` to inspect a particular round's UTC events.
+The command works while the forecasting job holds the deployment lock.
+It reads private files locally and makes no provider or Cloud Storage calls.
+
+Each set shows a confirmed upload, its time waiting after validation, or the
+member and question category furthest below the 95% requirement. Worker counts
+are assigned slots. Older rounds have limited history and may lack timestamps
+for individual results. New rounds save their registered members at startup.
+
+During an automatic round a watchdog checks every 30 seconds. A validated set
+without a matching receipt after ten minutes pages with its upload-only retry
+command. The immediate failure alert and the watchdog share one delivered page
+per set. The noon and 20:00 UTC progress alerts include the current set summary.

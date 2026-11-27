@@ -193,9 +193,10 @@ def _sha(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
 
 
-def build():
+def build(capability=None):
+    """Compose the set; a supplied capability document supports dated replay."""
     leap = json.load(open(LEAP, encoding="utf-8"))
-    cap = json.load(open(CAP, encoding="utf-8"))
+    cap = capability if capability is not None else json.load(open(CAP, encoding="utf-8"))
     if not cap.get("elicit") or not cap["elicit"].get("target_months"):
         raise SystemExit(f"{CAP} is not the rolling self-elicited set; this instrument is built on it")
     scenarios = ([{**c, "group": "policy"} for c in leap["conditions"]]
@@ -225,7 +226,8 @@ def build():
                 {"slug": leap.get("slug", "leap"), "file": os.path.relpath(LEAP, ROOT),
                  "sha256": _sha(LEAP), "generated_by": leap.get("generated_by")},
                 {"slug": cap["slug"], "file": os.path.relpath(CAP, ROOT),
-                 "sha256": _sha(CAP), "generated_by": cap.get("generated_by"),
+                 "sha256": (_sha(CAP) if capability is None else hashlib.sha256(
+                     (json.dumps(cap, indent=1, ensure_ascii=False) + "\n").encode()).hexdigest()), "generated_by": cap.get("generated_by"),
                  "protocol": cap.get("protocol")},
             ],
         },

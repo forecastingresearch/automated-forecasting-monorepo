@@ -12,6 +12,7 @@ from statistics import median
 from dashboard import resolutions
 from fri_forecaster import baseline, eci, keys, panel
 
+from fri_forecaster.tool_cli import SEARCH_ENV, SEARCH_KEYS, search_name
 from fri_forecaster.tools import BLOCK_ENV, BLOCK_DOMAINS_ENV
 
 from .conditions import DOMAINS
@@ -47,7 +48,8 @@ def execute(out, plan, harness_run=None):
     domains = DOMAINS[access]
     if plan.get("blocked_domains", []) != domains:
         raise ValueError("Frozen web access settings differ from this condition")
-    env = {BLOCK_ENV: "", BLOCK_DOMAINS_ENV: " ".join(domains)}
+    search = plan.get("search", "tavily")
+    env = {SEARCH_ENV: search, BLOCK_ENV: "", BLOCK_DOMAINS_ENV: " ".join(domains)}
     sections = selected_sections(parse(plan["survey"]), plan.get("excluded_questions", []))
     tool = submission_tool(sections)
 
@@ -60,6 +62,8 @@ def execute(out, plan, harness_run=None):
                 raise ValueError(f"{receipt} does not match this run")
             if record.get("web_access") != plan.get("web_access") or record.get("blocked_domains", []) != domains:
                 raise ValueError(f"{receipt} belongs to a different web access condition")
+            if record.get("search", "tavily") != search:
+                raise ValueError(f"{receipt} belongs to a different search backend")
             validate(sections, record["response"])
             return record
         settled = resolutions.resolved_targets()
@@ -73,7 +77,7 @@ def execute(out, plan, harness_run=None):
             validate(sections, response)
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"{key}: invalid submission ({exc}); trace: {result.get('trace')}") from exc
-        record = {"web_access": plan.get("web_access"), "blocked_domains": domains, "model": member["model"], "prompt_sha256": plan["prompt_sha256"],
+        record = {"search": search, "web_access": plan.get("web_access"), "blocked_domains": domains, "model": member["model"], "prompt_sha256": plan["prompt_sha256"],
                   "response": response, "usage": result["usage"], "evidence": result["evidence"]}
         save(receipt, record)
         print(f"{key}: validated", flush=True)
@@ -87,7 +91,7 @@ def execute(out, plan, harness_run=None):
             qid = q["id"]
             ensemble[qid] = {field: median(r["response"]["answers"][qid][field] for r in records)
                              for field in fields(q)}
-    save(out / "ensemble.json", {"condition": "baseline", "web_access": plan.get("web_access"), "blocked_domains": domains, "date": plan["date"],
+    save(out / "ensemble.json", {"condition": "baseline", "search": search, "web_access": plan.get("web_access"), "blocked_domains": domains, "date": plan["date"],
                                  "prompt_sha256": plan["prompt_sha256"],
                                  "models": [r["model"] for r in records], "answers": ensemble})
 
@@ -125,7 +129,7 @@ def main():
             members, provenance = panel.panel(snapshot_dir=args.eci_dir, require_today=True)
             today = now.date().isoformat()
             prompt = f"Today is {today}.\n\n{survey_prompt(survey, excluded)}\n\nSubmit your answers using submit_forecast."
-            plan = {"condition": "baseline", "date": today, "survey": survey, "prompt": prompt,
+            plan = {"condition": "baseline", "search": search_name(), "date": today, "survey": survey, "prompt": prompt,
                     "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "system_prompt": baseline.SYSTEM,
                     "members": members, "panel": provenance}
             if excluded:
@@ -137,8 +141,10 @@ def main():
                 plan["conditions"] = conditions
             save(out / "plan.json", plan)
         print(out, flush=True)
-        if "TAVILY_API_KEY" not in keys.load_keys():
-            parser.exit(1, "TAVILY_API_KEY is required for Baseline research tools\n")
+        key = SEARCH_KEYS.get(plan.get("search", "tavily"))
+        have_keys = keys.load_keys()
+        if key and key not in have_keys:
+            parser.exit(1, f"{key} is required for Baseline research tools\n")
         conditions = plan.get("conditions")
         for access in conditions or [plan.get("web_access")]:
             directory = out

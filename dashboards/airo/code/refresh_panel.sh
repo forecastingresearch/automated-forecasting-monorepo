@@ -12,6 +12,12 @@
 # A failed refresh stops the job before any model calls.
 set -euo pipefail
 
+if [ -n "${AIRO_PANEL_LOCK:-}" ]; then
+    mkdir -p "$(dirname "$AIRO_PANEL_LOCK")"
+    exec {panel_lock}>"$AIRO_PANEL_LOCK"
+    flock "$panel_lock"
+fi
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ -z "${REDLINES_PY:-}" ] && [ -x "$REPO/../../.venv/bin/python" ]; then
     REDLINES_PY="$REPO/../../.venv/bin/python"

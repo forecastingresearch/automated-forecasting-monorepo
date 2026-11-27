@@ -1,9 +1,14 @@
 """Read the survey and check one respondent's submission."""
+import hashlib
 import math
 import re
 from pathlib import Path
 
 SOURCE = Path(__file__).with_name("rsi_forecasting_survey.md")
+
+
+def original_survey(text):
+    return hashlib.sha256(text.encode()).hexdigest() == "4085cc762b21d4129ef4d1a8b5bf1d2fa241df09b8c1d9dca8866f55e7a26774"
 
 
 def parse(text):
@@ -18,7 +23,7 @@ def parse(text):
             questions.append(dict(id=qid, label=label, prompt=prompt.removeprefix("**").replace("**", ""),
                                   answer=answer, resolution=resolution.strip()))
         sections.append(dict(id=number, title=title, intro=chunks[0].strip(), questions=questions))
-    expected = [4, 3, 4, 3, 4]
+    expected = [4, 3, 4 if original_survey(text) else 5, 3, 4]
     if len(sections) != len(expected):
         raise ValueError("Expected five RSI sections")
     for i, (section, count) in enumerate(zip(sections, expected), 1):
@@ -41,9 +46,12 @@ def selected_sections(sections, excluded):
 def survey_prompt(source, excluded):
     if not excluded:
         return source.rstrip()
-    sections = selected_sections(parse(source), excluded)
-    intro = source.split("\n## 1.", 1)[0].replace("18 forecasting questions in 5 sections",
-        f"{sum(len(s['questions']) for s in sections)} forecasting questions in {len(sections)} sections")
+    original = parse(source)
+    sections = selected_sections(original, excluded)
+    count = sum(len(section["questions"]) for section in sections)
+    intro = re.sub(r"\d+ forecasting questions in \d+ sections",
+                   f"{count} forecasting questions in {len(sections)} sections",
+                   source.split("\n## 1.", 1)[0])
     blocks = [intro.rstrip()]
     for s in sections:
         blocks.extend([f"## {s['id']}. {s['title']}", s["intro"]])
@@ -51,7 +59,7 @@ def survey_prompt(source, excluded):
             blocks.extend([f"### {q['id']} {q['label']}", q["prompt"], "Answer: " + q["answer"],
                            "Resolution: " + q["resolution"]])
     # Other questions can refer back to a resolved question's definitions.
-    for section in parse(source):
+    for section in original:
         for q in section["questions"]:
             if q["id"] in excluded and any(q["id"] in text for text in blocks):
                 blocks.append(f"Reference criteria for {q['id']}: {q['resolution']}")

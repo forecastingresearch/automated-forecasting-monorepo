@@ -25,6 +25,7 @@
     "20-live-graph1.jsx",
     "30-live-graph2.jsx",
     "40-graph3-graph4-charts.jsx",
+    "44-observational-extension.js",
     "45-conditional-benches.jsx",
     "50-live-databank.jsx",
     "60-atoms.jsx",

@@ -20,7 +20,7 @@ const runs = Array.from(batches.values(), arms => {
     answers[id] = Object.fromEntries(Object.keys(answer).map(field =>
       [field, median(arms.map(arm => arm.answers[id][field]))]));
   }
-  return {id:first.id, date:first.date, arms, answers};
+  return {id:first.id, date:first.date, method:first.method, arms, answers};
 });
 const latest = runs.at(-1);
 const questions = new Map(sections.flatMap(s => s.questions.map(q => [q.id, q])));
@@ -31,6 +31,34 @@ function element(tag, parent, text, className) {
   if (className) node.className = className;
   parent.append(node);
   return node;
+}
+function surveyText(text) {
+  const fragment = document.createDocumentFragment();
+  // The survey uses inline citations and emphasis, plus paragraph and list blocks.
+  const tokens = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;
+  let end = 0;
+  for (const match of text.matchAll(tokens)) {
+    fragment.append(text.slice(end, match.index));
+    const [, label, url, strong, emphasis] = match;
+    if (url) element("a", fragment, label).href = url;
+    else if (strong) element("strong", fragment, strong);
+    else element("em", fragment, emphasis);
+    end = match.index + match[0].length;
+  }
+  fragment.append(text.slice(end));
+  return fragment;
+}
+function renderDefinition(parent, text) {
+  for (const block of text.trim().split(/\n\s*\n/)) {
+    if (block.startsWith("- ")) {
+      const list = element("ul", parent);
+      for (const item of block.slice(2).split(/\n- /)) {
+        element("li", list).append(surveyText(item));
+      }
+    } else {
+      element("p", parent).append(surveyText(block));
+    }
+  }
 }
 function point(value) { return value?.probability ?? value?.p50; }
 function unit(id) {
@@ -62,13 +90,44 @@ function comparison(parent, run, id) {
     arm.models.find(m => m.id === key)?.answers[id]));
   row("Ensemble",run.arms.map(arm => arm.answers[id]));
 }
+const detailHint = element("div", document.body, "Click to see forecasts, definitions, and rationales", "detail-hint");
+detailHint.id = "forecast-detail-hint";
+detailHint.setAttribute("role", "tooltip");
+detailHint.hidden = true;
+
+function bindQuestion(row, trigger, id) {
+  trigger.setAttribute("aria-describedby", detailHint.id);
+  function show(x, y, above) {
+    detailHint.hidden = false;
+    detailHint.style.left = Math.max(8, Math.min(x, innerWidth - detailHint.offsetWidth - 8)) + "px";
+    detailHint.style.top = (y + detailHint.offsetHeight + 8 <= innerHeight ? y : Math.max(8, above - detailHint.offsetHeight)) + "px";
+  }
+  row.addEventListener("pointermove", event => {
+    if (event.pointerType !== "touch") show(event.clientX + 12, event.clientY + 18, event.clientY - 8);
+  });
+  row.addEventListener("pointerleave", hideDetailHint);
+  trigger.addEventListener("focus", () => {
+    if (!trigger.matches(":focus-visible")) return;
+    const rect = trigger.getBoundingClientRect();
+    show(rect.left, rect.bottom + 6, rect.top - 6);
+  });
+  trigger.addEventListener("blur", hideDetailHint);
+  forecastDialog.bind(row, trigger, opener => {
+    hideDetailHint();
+    openQuestion(id, opener);
+  });
+}
+function hideDetailHint() { detailHint.hidden = true; }
+document.addEventListener("keydown", event => { if (event.key === "Escape") hideDetailHint(); });
+window.addEventListener("resize", hideDetailHint);
+
 byId("example").hidden = !synthetic;
 byId("updated").textContent = latest?.date ? "Updated: " + latest.date :
   synthetic ? "Example values" : "Awaiting the first Baseline run";
 for (const [title, first, second] of [
   ["Public fast year", "Q3.1", "Q3.2"], ["AL5 share of AI R&D", "Q1.1", "Q1.2"],
   ["Internal lead over public models (ECI points)", "Q4.1", "Q4.2"],
-  ["If a public fast year: caused by AI R&D automation", null, "Q3.4"]
+  ["If a public fast year: caused by AI R&D automation", questions.has("Q3.5") ? "Q3.5" : null, "Q3.4"]
 ]) {
   const card = element("article", byId("cards"), undefined, "card");
   element("div", card, title, "label");
@@ -79,7 +138,7 @@ for (const [title, first, second] of [
     element("span", row, format(point(v), id), "number");
     if (id) {
       row.setAttribute("aria-label", year + " · " + format(point(v), id) + " · Open " + id + " · " + questions.get(id).label);
-      forecastDialog.bind(row, row, trigger => openQuestion(id, trigger));
+      bindQuestion(row, row, id);
     }
     element("small", row, interval(v, id));
   }
@@ -134,8 +193,9 @@ function drawHistory(runs) {
     element("div",tooltip,cluster[0].date || "Example","label");
     for (const run of cluster) {
       if (cluster.length > 1) element("div",tooltip,run.id,"label");
-      element("strong",tooltip,"Median across ensembles · " + format(run.answers["Q3.2"].probability,"Q3.2"));
+      element("strong",tooltip,(run.method ? "Historical ensemble · " : "Median across ensembles · ") + format(run.answers["Q3.2"].probability,"Q3.2"));
       comparison(tooltip,run,"Q3.2");
+      if (run.method) element("small",tooltip,run.method);
     }
     tooltip.hidden = false;
     positionTooltip();
@@ -207,21 +267,27 @@ function openQuestion(id,opener) {
   const section = sections.find(s => s.questions.includes(q));
   const views = [];
   views.push(["Forecasts", content => {
-    if (!latest) { element("p",content,"Awaiting the first Baseline run."); return; }
+    if (!latest?.answers[id]) { element("p",content,"Awaiting the first forecast for this question."); return; }
     const answer = latest.answers[id];
     const summary = element("div",content,undefined,"question-median");
     element("span",summary,"Median across ensembles","label");
     element("strong",summary,format(point(answer),id));
     if (interval(answer,id)) element("small",summary,"P10–P90 · " + interval(answer,id));
     comparison(content,latest,id);
+    for (const run of runs.filter(r => r.method && r !== latest && r.answers[id])) {
+      const history = element("details",content);
+      element("summary",history,run.date + " · Historical forecasts");
+      element("p",history,run.method);
+      comparison(history,run,id);
+    }
   }]);
   views.push(["Definition", content => {
     for (const [heading,text] of [["Answer format",q.answer],["Resolution",q.resolution],["Section definitions",section.intro]]) {
       element("h3",content,heading);
-      element("p",content,text,"survey-text");
+      renderDefinition(content, text);
     }
   }]);
-  if (latest) views.push(["Rationales", content => {
+  if (latest?.answers[id]) views.push(["Rationales", content => {
     element("p",content,"Model rationales for this survey section.","rationale-intro");
     const choices = element("div",content,undefined,"model-choices");
     const reasons = element("div",content,undefined,"rationale-columns");
@@ -234,13 +300,13 @@ function openQuestion(id,opener) {
         for (const arm of latest.arms) {
           const column = element("section",reasons);
           element("h3",column,labels[arm.web_access || "legacy"]);
-          element("p",column,arm.models.find(m => m.id === key)?.rationales[section.id] || "—","survey-text");
+          element("p",column,arm.models.find(m => m.id === key)?.rationales?.[section.id] || "—","survey-text");
         }
       };
     }
     choices.firstElementChild?.click();
   }]);
-  forecastDialog.show(opener, id + " · " + section.title, q.prompt, views);
+  forecastDialog.show(opener, id + " · " + section.title, surveyText(q.prompt), views);
 }
 const weekAgo = latest?.date && runs.findLast(r => Date.parse(latest.date)-Date.parse(r.date) === 7*86400000);
 for (const section of sections) {
@@ -256,13 +322,14 @@ for (const section of sections) {
   for (const q of section.questions) {
     const row = element("tr",body);
     element("td",row,q.id);
-    const trigger = element("button",element("td",row),q.prompt,"question-trigger");
-    forecastDialog.bind(row, trigger, opener => openQuestion(q.id, opener));
+    const trigger = element("button",element("td",row),undefined,"question-trigger");
+    trigger.append(surveyText(q.prompt));
+    bindQuestion(row, trigger, q.id);
     const answer = latest?.answers[q.id];
     const text = format(point(answer),q.id) + (interval(answer,q.id) ? " (" + interval(answer,q.id) + ")" : "");
     element("td",row,text);
-    const values = latest?.arms.flatMap(arm => arm.models.map(m => point(m.answers[q.id])));
-    element("td",row,answer && values ? format(Math.min(...values),q.id)+"–"+format(Math.max(...values),q.id) : "—");
+    const values = answer && latest.arms.flatMap(arm => arm.models.map(m => point(m.answers[q.id])));
+    element("td",row,values ? format(Math.min(...values),q.id)+"–"+format(Math.max(...values),q.id) : "—");
     const delta = answer && weekAgo?.answers[q.id] ? point(answer)-point(weekAgo.answers[q.id]) : null;
     element("td",row,delta == null ? "—" : (delta>0?"+":"")+Number(delta.toFixed(2))+(unit(q.id)?" pp":""));
   }
@@ -282,21 +349,22 @@ if (latest?.answers["Q3.2"]) {
 }
 byId("download").disabled = !allRuns.length;
 byId("download").onclick = () => {
-  const rows = [["run","date","web_access","model","question","probability","p10","p50","p90","section_rationale"]];
+  const rows = [["run","date","web_access","model","question","probability","p10","p50","p90","section_rationale","method","question_rationales_by_prompt"]];
   for (const run of allRuns) {
     for (const model of [...run.models,{id:"ensemble",answers:run.answers}]) {
       for (const s of sections) for (const q of s.questions) {
         const a = model.answers[q.id];
         if (!a) continue;
-        rows.push([run.id,run.date,run.web_access || "legacy",model.id,q.id,a.probability,a.p10,a.p50,a.p90,model.rationales?.[s.id]]);
+        rows.push([run.id,run.date,run.web_access || "legacy",model.id,q.id,a.probability,a.p10,a.p50,a.p90,model.rationales?.[s.id],run.method || "Baseline",
+          model.question_rationales ? JSON.stringify(model.question_rationales[q.id]) : ""]);
       }
     }
   }
-  for (const run of runs) {
+  for (const run of runs.filter(r => !r.method)) {
     for (const section of sections) for (const q of section.questions) {
       const a = run.answers[q.id];
       if (!a) continue;
-      rows.push([run.id,run.date,"all-conditions","median-across-ensembles",q.id,a.probability,a.p10,a.p50,a.p90,""]);
+      rows.push([run.id,run.date,"all-conditions","median-across-ensembles",q.id,a.probability,a.p10,a.p50,a.p90,"","Median across condition ensembles",""]);
     }
   }
   const csv = rows.map(row => row.map(v => '"' + String(v ?? "").replaceAll('"','""') + '"').join(",")).join("\r\n");

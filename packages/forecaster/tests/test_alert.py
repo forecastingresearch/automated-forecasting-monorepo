@@ -72,6 +72,13 @@ class TestAlert(unittest.TestCase):
         self.assertIn("not delivered", err)
         self.assertEqual(self.quiet(alert.main, ["send", "--deployment", "airo", "--title", "t", "m"])[0], 0)
 
+    def test_send_can_require_delivery_without_changing_default_exit_status(self):
+        argv = ["send", "--deployment", "airo", "--title", "test", "message"]
+        self.assertEqual(self.quiet(alert.main, argv)[0], 0)
+        self.assertEqual(self.quiet(alert.main, [*argv, "--require-delivery"])[0], 1)
+        self.channels({"kind": "ntfy", "topic": "example"})
+        self.assertEqual(self.quiet(alert.main, [*argv, "--require-delivery"])[0], 0)
+
     def test_a_bad_file_fails_the_check_but_not_the_job(self):
         self.channels({"kind": "carrier-pigeon"})
         self.assertEqual(self.quiet(alert.main, ["check"])[0], 1)

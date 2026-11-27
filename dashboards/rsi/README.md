@@ -75,3 +75,15 @@ members validate, `ensemble.json` contains the median across models for
 each probability and each percentile. Pass `--resume RUN_DIRECTORY` to reuse
 validated responses and retry missing members. The preview remains a separate
 local build.
+
+
+### October 29 historical delivery
+
+To include the October 29 run, copy the delivered archive’s `forecasts.json` to
+`state/results/2026-10-29-airo-forecasts.json` on forecast-prod and rebuild
+with `forecast-prod rsi deploy --publish-data`. The loader checks the exact
+delivery checksum. The original Quorum survey has the same 18 question IDs.
+Under full web access, each model answered five AIRO prompt variants. Its
+reported forecast is the arithmetic mean for each field over the five prompts.
+The ensemble is the field-wise median across those four model forecasts.
+The CSV retains the historical per-question rationales keyed by prompt.

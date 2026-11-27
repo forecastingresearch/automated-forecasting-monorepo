@@ -45,6 +45,21 @@ A **condition** is a rule for what to forecast with, defined by rank on Epoch's 
   (`fri_forecaster.variants`; `none`, AIRO's Baseline, adds nothing). An entry lists them
   in `prompts`, and its forecast is the mean over every member under every prompt.
 
+In each mode with research, a member uses Exa by default. Select Tavily or
+Keenable with `forecastbench run --search tavily|keenable`. `--search all`
+runs a member per backend. `forecastbench build --member MODEL[@THINKING][,MODE][,SEARCH]`
+also defaults to Exa when research is enabled. Use `,tavily` to select existing
+Tavily members. Exa requires `EXA_API_KEY`, Tavily requires `TAVILY_API_KEY`, and
+Keenable accepts `KEENABLE_API_KEY` for rounds that exceed its public request limit.
+
+Set `FB_CHORUS_PUBLIC_SEARCH` privately to the backend selected for the public
+slot. Preview the three entries with `python -m forecastbench.names
+configure-chorus-search --dry-run` and omit `--dry-run` to save. Each entry
+uses the shared Baseline prompt and takes the median across responding models
+for each question and date. Each new registration takes an unused suffix from
+the private registry under the same Chorus prefix. The round keeps individual
+member results and writes the aggregation rule to the local build provenance.
+
 **What goes up.** ForecastBench takes at most 3 sets a round and, since 2026-11-13, at
 most one under the team's own name; the rest carry its anonymous one (`Anonymous N`). A
 condition is submitted unless the registry says `"submit": false`, and anonymously unless
@@ -154,6 +169,7 @@ short, the files to upload, and API cost per member.
 <ROUNDS_DIR>/<due>/
   question_set.json                       the round's questions, fetched once
   members/<model>--<thinking>--<mode>/     mode: research, noresearch, airo-<condition>
+                                          (an Exa member adds --exa, a Keenable member --keenable)
     manifest.json                         the member's settings, pinned
     results.jsonl                         one line per question answered
     calls/<source>__<id>/attempt-N/       one pi call's inbox and outbox
@@ -178,8 +194,12 @@ scripts/fb_round.sh 2026-10-25                       # the real round
 
 Unattended, cron runs `scripts/fb_cron.sh <due>` instead: the same round, its output in
 `<ROUNDS_DIR>/<due>/logs/cron.out`, then one alert (`fri_forecaster.alert`; where it goes
-is the installation's `alerts.json`). Successful builds are automatically uploaded
-using the private settings in [the setup guide](README.md). A notice confirms the
+is the installation's `alerts.json`). Each submitted set uploads as soon as
+its build passes validation, before the next condition starts. The second
+pass retries incomplete submissions. Conditions kept only for scoring run last.
+At noon UTC the runner pages if the first set is below the pace needed for an
+18:00 UTC target. It pages again at 20:00 UTC if any upload is still pending. It uses the
+private settings in [the setup guide](README.md). A notice confirms the
 uploads; `upload FAILED` pages on upload errors, and `run FAILED` pages on build
 failures (unless the round already paged). Retry an upload with
 `python -m forecastbench.upload --root <ROUNDS_DIR>/<due>` after sourcing the

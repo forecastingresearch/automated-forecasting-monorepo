@@ -45,7 +45,7 @@ const forecastDialog = (() => {
   function show(trigger, label, title, sections) {
     opener = trigger;
     dialog.querySelector("#question-id").textContent = label;
-    dialog.querySelector("#question-title").textContent = title;
+    dialog.querySelector("#question-title").replaceChildren(title);
     views.replaceChildren();
     for (const [name, render] of sections) {
       const button = document.createElement("button");

@@ -3,7 +3,7 @@ import csv
 import fcntl
 import io
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from tempfile import NamedTemporaryFile
 
 from . import config, resolve, survey
@@ -14,6 +14,14 @@ def current(as_of=None):
     cutoff = str(as_of or datetime.now(timezone.utc).date())
     files = sorted(p for p in root.glob("????-??-??.csv") if p.stem <= cutoff)
     return files[-1] if files else config.HISTORY
+
+
+def snapshot():
+    """Read the chosen inode once so the page and export share bytes and date."""
+    source = current()
+    if source == config.HISTORY:
+        return {"source": "survey", "as_of": None}, source.read_bytes()
+    return {"source": "fred", "as_of": date.fromisoformat(source.stem).isoformat()}, source.read_bytes()
 
 
 def refresh(as_of=None, reader=resolve.fetch):

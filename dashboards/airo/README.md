@@ -181,15 +181,14 @@ left the repo.
 Keys go in the installation's one keys file, which every project in this
 repository reads (`fri_forecaster.keys`): `~/.config/fri-forecaster/env` (mode
 600), one `KEY=value` per line: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`GEMINI_API_KEY`, `XAI_API_KEY`, `TAVILY_API_KEY`. `FORECASTER_ENV_FILE=<path>`
+`GEMINI_API_KEY`, `XAI_API_KEY`, `EXA_API_KEY`. `FORECASTER_ENV_FILE=<path>`
 names another file. An already-set environment variable always beats the file.
 `code/cron_run.sh` sources the same file, and `tests/test_llm.py` pins the two
 parsers to agree.
 
-`TAVILY_API_KEY` is required rather than optional: without it every model still
-answers, from parametric memory with no current evidence, and the run looks
-identical from the outside, so the runner refuses instead;
-`--allow-ungrounded` makes that an explicit choice.
+All conditions use Exa by default. The runner checks the search credential for
+each selected condition before making model calls. `--allow-ungrounded` allows
+a run without the required search credentials.
 
 **The published protocol** (since 2026-08-27; rows are tagged with a protocol
 id, currently `unified-joint-combined-v12`, see `redlines/conditional.py`) is the

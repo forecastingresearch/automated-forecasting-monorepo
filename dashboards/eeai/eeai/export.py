@@ -39,6 +39,7 @@ the models of a run. Instrument: {instrument}. Runs: {runs}.
   scenario, the weight on each capability indicator, and two milestones.
 - questions.json: the current definitions. The run files retain the original prompts.
 - history.csv: the baseline drawn on the page (series, date, value).
+{baseline_description}
 - resolutions.json: first outcomes with rule versions and source evidence. When a target has revisions,
   its `revisions` array contains the full source history, including the first release.
 - runs/: the run files, one JSON object per line and one line per model and
@@ -77,13 +78,14 @@ def progress_lines(runs):
                     yield [r["run_id"], r["run_date"], r["label"], r["model"], item, field, v]
 
 
-def bundle(out, survey, runs, runs_dir=None, outcomes=None, history_bytes=None, human=None, vintage=None):
+def bundle(out, survey, runs, runs_dir=None, outcomes=None, history_bytes=None, human=None, vintage=None, baseline=None):
     """Write the zip. -> its member names."""
     synthetic = any(r.get("synthetic") for _, rows in runs for r in rows)
     readme = README.format(
         note="PLACEHOLDER DATA: these numbers are made up to show the layout.\n\n" if synthetic else "",
         instrument=survey["instrument"], runs=", ".join(run_id for run_id, _ in runs),
-        forecast_columns=", ".join(FORECAST_COLUMNS))
+        forecast_columns=", ".join(FORECAST_COLUMNS),
+        baseline_description=("- baseline.json: the source and as-of date of history.csv.\n" if baseline else "").rstrip())
     if human:
         readme += f"\nHuman forecasts are cohort aggregates from the original EEAI survey. Warehouse extract dated {vintage}.\n"
     return download.bundle(out, [
@@ -94,6 +96,7 @@ def bundle(out, survey, runs, runs_dir=None, outcomes=None, history_bytes=None, 
         ("ai_progress.csv", download.csv_text(PROGRESS_COLUMNS, progress_lines(runs))),
         ("questions.json", json.dumps(survey, ensure_ascii=False, indent=1) + "\n"),
         ("history.csv", config.HISTORY if history_bytes is None else history_bytes),
+        *([("baseline.json", json.dumps(baseline, indent=2) + "\n")] if baseline else []),
         *([("resolutions.json", json.dumps([dict(question=q, horizon=h, **value)
             for (q, h, _), value in sorted(outcomes.items())], indent=2))] if outcomes else []),
         *((f"runs/{run_id}.jsonl", Path(runs_dir or config.RUNS) / f"{run_id}.jsonl") for run_id, _ in runs),

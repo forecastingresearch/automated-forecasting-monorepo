@@ -123,14 +123,15 @@ def main(argv=None):
     s.add_argument("--deployment", required=True)
     s.add_argument("--severity", default="page", choices=SEVERITIES)
     s.add_argument("--title", required=True)
+    s.add_argument("--require-delivery", action="store_true", help="exit 1 if no channel receives the alert")
     s.add_argument("--log", help="where to look, added to the message")
     s.add_argument("message")
     sub.add_parser("check", help="exit 1 unless this installation has a channel for a page")
     sub.add_parser("test", help="send one test line down every channel")
     args = ap.parse_args(argv)
     if args.cmd == "send":
-        send(args.deployment, args.title, args.message, severity=args.severity, log=args.log)
-        return 0   # never the caller's failure
+        sent = send(args.deployment, args.title, args.message, severity=args.severity, log=args.log)
+        return int(args.require_delivery and not sent)
     try:
         found = channels()
     except (ValueError, OSError) as e:

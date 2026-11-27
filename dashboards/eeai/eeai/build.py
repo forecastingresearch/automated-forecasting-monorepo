@@ -195,7 +195,7 @@ def main(args):
     snapshot_id, histories = resolutions.history(config.RESULTS / "resolutions.sqlite")
     outcomes = resolutions.project(histories)
     from . import baselines
-    history_bytes = baselines.current().read_bytes()
+    baseline, history_bytes = baselines.snapshot()
     history = S.read_history(io.StringIO(history_bytes.decode()))
     blob = build(survey, history=history, runs=runs, outcomes=outcomes)
     blob["outcome_snapshot_id"] = snapshot_id
@@ -205,6 +205,7 @@ def main(args):
     blob["human_extracted_on"] = vintage
     if human:
         blob["download"] = export.NAME
+    blob["baseline"] = baseline
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -217,7 +218,7 @@ def main(args):
         out = kit.write_site(Path(args.site) if args.site else config.SITE, page(blob),
                              assets={f"web/{sub}": config.PAGE_DIR / sub for sub in ("img", "fonts")}) / "index.html"
     if runs or human:
-        export.bundle(out.with_name(export.NAME), survey, runs, args.runs, outcomes, history_bytes, human=human, vintage=vintage)
+        export.bundle(out.with_name(export.NAME), survey, runs, args.runs, outcomes, history_bytes, human=human, vintage=vintage, baseline=baseline)
     if args.json:
         Path(args.json).write_text(json.dumps(blob, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{out}: {len(runs)} run(s), {len(blob['questions'])} questions"

@@ -69,7 +69,7 @@ The Baseline condition on the shared panel, both from `packages/forecaster`:
   model family, from the newest Epoch snapshot under the repository's `data/`
   (`EEAI_ECI_DIR` names another directory).
 - `fri_forecaster.baseline`: no system prompt, web search and page reading
-  offered (Tavily) and never required, reasoning at the top level, no debrief.
+  offered (Exa by default) and never required, reasoning at the top level, no debrief.
   This is AIRO's published `none` condition.
 - The models cannot search or read FRI's own pages (`forecastingresearch.org`
   and its subdomains, and FRI's Substack): the human panel's answers to this
@@ -87,7 +87,7 @@ python3 -m eeai run --synthetic --out DIR     # made-up answers, to look at the 
 python3 -m eeai build --runs DIR --site DIR
 ```
 
-A run refuses to start without `TAVILY_API_KEY`. Keys are read as the harness
+A run using the default search backend requires `EXA_API_KEY`. Keys are read as the harness
 reads them (`fri_forecaster/keys.py`).
 
 ## The page
@@ -101,10 +101,10 @@ straight lines. A recorded outcome appears alongside the forecast. The table
 shows the signed error for unconditional forecasts and for the realized AI
 scenario once FRI records its end-of-2030 decision.
 
-The headline charts for real GDP growth, youth unemployment (ages 20–24), and the wealth share of the top 10% share a Current/History toggle. The remaining indicators have their own toggle. Current
+The headline charts for real GDP growth, labor force participation, and the wealth share of the top 10% share a Current/History toggle. The remaining indicators have their own toggle. Current
 shows forecasts by target year. History tracks one target across forecast
 runs and shows the outcome once available. The horizon and AI progress
-controls apply across both chart areas. Near-term covers the five calendar
+controls apply across both chart areas. A fresh visit opens on the long-term view with 2050 selected and forecasts conditional on AI progress. Near-term covers the five calendar
 years after the latest run. Long-term shows the original 2030 and 2050
 targets. History includes a year selector within the chosen window.
 The page address preserves these choices (for example,
@@ -189,9 +189,24 @@ for separate reviewed releases on the same date. Corrections use the explicit
 `decide` command and retain the prior evidence.
 
 The schedule in `packages/ops/jobs.json` requests a daily 15:15 UTC economic
-refresh and verified site rebuild. This job uses existing forecast runs and
-makes no model calls. Production activation follows the shared deployment
-guide and requires FRED access from the scheduled runtime.
+refresh and verified site rebuild. It is the automatic ingestion and
+resolution trigger for EEAI. Each question's rule controls evidence selection
+within that job. The forecast runner reads the last completed local baseline
+and makes no FRED requests. The refresh uses existing forecast runs and
+makes no model calls. If an upstream resolution check fails, the dated
+baseline stays at its last completed version. Frozen decisions are retained
+as evidence. Production activation follows the shared deployment
+guide and requires FRED access from the scheduled runtime. See the
+[EEAI operator pilot](../../packages/ops/DASHBOARDS.md#eeai-operator-pilot)
+for scheduler diagnostics, verified refresh and recovery.
+
+New builds report the as-of date of the dated FRED file used for the
+baseline. This is the source vintage cutoff for the refresh. The survey seed
+has no as-of date. The page data and the ZIP's `baseline.json` describe the
+same `history.csv` bytes. A frontend-only deploy keeps the previously
+published data block and ZIP, so a legacy publication without baseline
+provenance displays an unavailable date. The download card links to the
+live site's `release.json`.
 
 ## Open
 

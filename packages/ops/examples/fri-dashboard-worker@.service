@@ -1,0 +1,17 @@
+[Unit]
+Description=Run scheduled %i jobs for installed forecasting dashboards
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=forecast
+Group=forecast
+UMask=0077
+ExecStart=/usr/local/bin/dashboardctl airo worker --lane %i
+Restart=always
+RestartSec=2s
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

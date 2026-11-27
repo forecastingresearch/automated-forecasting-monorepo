@@ -5,7 +5,7 @@ lose the others; the run exits 1 if any call failed. A call's first row carries
 what belongs to the whole call under `call`: the sources, the research
 evidence, what it cost, the prompt.
 
-Search is not optional: without TAVILY_API_KEY every model still answers, from
+Search is not optional: without the selected search API key every model still answers, from
 memory with no current evidence, and the run looks the same from outside, so
 the runner refuses unless told --allow-ungrounded.
 """
@@ -26,6 +26,10 @@ def ask(member, question_set, today, run_id, *, panel=None, retries=1, harness_r
     """One call, asked again (up to `retries` times) while any value is
     missing. -> rows, one per question, the first carrying `call`."""
     from fri_forecaster import baseline
+    from fri_forecaster.tool_cli import SEARCH_ENV, search_name
+
+    search = (env or {}).get(SEARCH_ENV) or search_name()
+    env = dict(env or {}, **{SEARCH_ENV: search})
     prompt, numbers = instrument.build_prompt(question_set, today)
     submit_cells, submit_forecast = instrument.tools(question_set)
     questions = instrument.numbered(question_set)
@@ -51,7 +55,7 @@ def ask(member, question_set, today, run_id, *, panel=None, retries=1, harness_r
     evidence = [{k: e.get(k) for k in ("tool", "args", "result")} for e in res.get("evidence") or []]
     hits = sum(len((e.get("result") or {}).get("results") or []) for e in evidence if e["tool"] == "web_search")
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    call = {"key_sources": answer.get("key_sources"), "evidence": evidence, "search_hits": hits,
+    call = {"search": search, "key_sources": answer.get("key_sources"), "evidence": evidence, "search_hits": hits,
             "grounded": hits > 0, "usage": usage, "cost_usd": round(sum(u.get("cost_usd") or 0 for u in usage), 6),
             "delivery": res.get("delivery"), "attempts": attempts, "values": got, "values_asked": want,
             "prompt": prompt, "system_prompt": baseline.SYSTEM, "reasoning": member.get("reasoning")}
@@ -98,11 +102,10 @@ def main(args, harness_run=None):
         return 0
     today = date.fromisoformat(args.today) if args.today else datetime.now(timezone.utc).date()
     members, provenance = select_members(args)
-    if harness_run is None:
-        from fri_forecaster import keys
-        if "TAVILY_API_KEY" not in keys.load_keys() and not args.allow_ungrounded:
-            sys.exit("TAVILY_API_KEY is not set: the models would answer from memory with no search. "
-                     "Set it (fri_forecaster.keys says where) or pass --allow-ungrounded.")
+    from fri_forecaster import keys
+    from fri_forecaster.tool_cli import SEARCH_ENV, SEARCH_KEYS, search_name
+
+    search = search_name()
     os.makedirs(args.out, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ")
     path = os.path.join(args.out, f"{run_id}.jsonl")
@@ -113,18 +116,25 @@ def main(args, harness_run=None):
         if not os.path.exists(path):
             sys.exit(f"--resume {args.resume}: no {path}")
         have = load_rows(path)
+        original_call = next(r["call"] for r in have if r.get("call"))
+        search = original_call.get("search", "tavily")
         today = date.fromisoformat(have[0]["run_date"])
         done = {r["key"] for r in have}
         members = [m for m in members if m["key"] not in done]
         if not members:
             sys.exit(f"--resume {args.resume}: every selected model has already answered")
+    key = SEARCH_KEYS.get(search)
+    have_keys = keys.load_keys() if harness_run is None else ()
+    if harness_run is None and key and key not in have_keys and not args.allow_ungrounded:
+        sys.exit(f"{key} is not set. Set it or pass --allow-ungrounded.")
     print(f"LEAP {question_set['question_set']} / {config.CONDITION}: {len(question_set['questions'])} questions, "
           f"{instrument.n_values(question_set)} values, {len(members)} model(s): "
           f"{', '.join(m['label'] for m in members)}", flush=True)
     lock, failed, spent = threading.Lock(), [], 0.0
 
     def one(member):
-        rows = ask(member, question_set, today, run_id, panel=provenance, retries=args.retries, harness_run=harness_run)
+        rows = ask(member, question_set, today, run_id, panel=provenance, retries=args.retries,
+                   harness_run=harness_run, env={SEARCH_ENV: search})
         with lock, open(path, "a", encoding="utf-8") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")

@@ -10,8 +10,10 @@ const terms = {
 };
 const said = new URLSearchParams(location.hash.slice(1));
 const savedYear = said.get("horizon");
-const term = said.get("term") === "long" || (!said.has("term") && savedYear === "2050") ? "long" : "near";
-const state = { split: said.get("split") === "1", term, horizon: terms[term].includes(savedYear) ? savedYear : terms[term].at(-1) };
+const savedTerm = said.get("term");
+const term = savedTerm === "near" || savedTerm === "long" ? savedTerm
+  : terms.near.includes(savedYear) && savedYear !== "2050" ? "near" : "long";
+const state = { split: said.get("split") !== "0", term, horizon: terms[term].includes(savedYear) ? savedYear : terms[term].at(-1) };
 const historyOf = new Set((said.get("history") || "").split(",").filter(a => a === "hero" || a === "grid"));
 const remember = () => { try { history.replaceState(null, "", `#split=${state.split ? 1 : 0}&term=${state.term}`
   + (state.horizon ? `&horizon=${state.horizon}` : "")
@@ -196,7 +198,7 @@ function forecastTitle(text) {
 
 const headlineMeasures = {
   gdp: ["Real GDP growth", "Annualized over the preceding five years"],
-  youth_unemployment: ["Youth unemployment", "U.S. labor force aged 20–24"],
+  lfpr: ["Labor force participation", "Share of U.S. civilian noninstitutional residents aged 16+ in the labor force"],
   wealth_inequality: ["Wealth inequality", "Share of U.S. wealth held by the top 10%"],
 };
 
@@ -288,6 +290,14 @@ function download() {
     "⤓ Download data");
 }
 
+function baselineDetails() {
+  const baseline = D.baseline;
+  const label = baseline?.as_of ? `Baseline as of ${baseline.as_of}`
+    : baseline?.source === "survey" ? "Baseline from the original survey"
+    : "Baseline as-of date unavailable";
+  return h("p", { class: "sub" }, label, " · ", h("a", { href: "release.json" }, "Release metadata"));
+}
+
 function render(previous) {
   charts.length = 0;
   // Hold the page's height while it is rebuilt: a chart measures its box as it
@@ -317,7 +327,8 @@ function render(previous) {
     hasForecasts && progress(),
     D.download && h("section", { class: "card" }, h("div", { class: "head" },
       h("div", {}, h("h2", {}, "Download data"),
-        h("p", { class: "sub", style: "color: var(--ink-soft); margin: 4px 0 0; max-width: 640px" }, "Every forecast from every model in every run, each model's rationale, the questions, and the run files with every search and page read.")),
+        h("p", { class: "sub", style: "color: var(--ink-soft); margin: 4px 0 0; max-width: 640px" }, "Every forecast from every model in every run, each model's rationale, the questions, and the run files with every search and page read."),
+        baselineDetails()),
       download())),
     h("footer", {}, "Questions and scenario definitions are from the Forecasting Research Institute's Economic Effects of AI survey. ",
       "The panel is the four highest-ranked models on Epoch's Capabilities Index that FRI can run, one per model family. ",

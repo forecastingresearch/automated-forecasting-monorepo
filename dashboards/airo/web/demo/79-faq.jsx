@@ -188,7 +188,7 @@ function FaqPanel({ onDefinitions }) {
         </React.Fragment>)}
 
         {item("elicit", "How do you elicit the forecasts?", <React.Fragment>
-          <p>Each model answers all questions in one forecasting session, which can include multiple research and submission turns. Models run in an agentic harness with access to a web search tool (Tavily).</p>
+          <p>Each model answers all questions in one forecasting session, which can include multiple research and submission turns. Models run in an agentic harness with access to web search and page-reading tools.</p>
           <PromptDisclosure />
           <p>We give the models a single elicitation because, in our testing, it reduced logical inconsistencies between forecasts. Some inconsistencies remain, including conditional probabilities that exceed those of their broader parent events. The check below covers the unconditional forecasts; it does not certify all conditional forecasts. Passing logical checks does not establish forecasting accuracy:</p>
           <LiveCoherence embedded />

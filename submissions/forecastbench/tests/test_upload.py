@@ -1,21 +1,22 @@
 """Submission validation, non-overwriting retries and alerts; no cloud calls."""
 import base64
 import contextlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
-import shlex
+import shutil
 import subprocess
+import textwrap
 import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
 import forecastbench as fb
-from forecastbench import names, upload
+from forecastbench import names, progress, status, upload
 
 
 DUE = '2026-11-22'
@@ -88,9 +89,9 @@ class UploadTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return fb.main(self.build_args)
 
-    def run_upload(self):
+    def run_upload(self, set_number=None):
         return upload.upload(self.root, self.reg, 'Example Team', None, PREFIX, ACCOUNT,
-                             storage_factory=lambda account: self.storage)
+                             storage_factory=lambda account: self.storage, set_number=set_number)
 
     def rewrite(self, fs):
         self.path.write_text(json.dumps(fs))
@@ -113,6 +114,56 @@ class UploadTest(unittest.TestCase):
         self.assertEqual(self.build(), 0)
         self.assertEqual({r['id'] for r in json.loads(self.path.read_text())['forecasts']}, {'d'})
         self.assertEqual(self.run_upload()['status'], 'uploaded')
+
+    def test_noon_checkpoint_checks_market_and_dataset_completion_separately(self):
+        self.assertEqual(progress.behind_schedule(self.root, self.reg), [])
+        log = self.member_path / 'results.jsonl'
+        log.write_text(log.read_text().splitlines()[0] + '\n')
+        self.assertEqual(progress.behind_schedule(self.root, self.reg),
+                         [f'{self.member_path.name}: dataset 0/1'])
+
+    def test_selected_upload_preserves_number_and_partial_receipt(self):
+        self.reg['conditions']['second'] = {'current': 'second-oak'}
+        self.reg['names']['second-oak'] = dict(self.reg['names']['solo-oak'], condition='second')
+        with self.assertRaises(FileNotFoundError):
+            self.run_upload()
+        self.assertFalse(self.storage.writes)
+        self.assertEqual(self.run_upload(1)['status'], 'uploading')
+        self.build_args[self.build_args.index('--name') + 1] = 'second-oak'
+        self.build_args[-1] = '2'
+        self.assertEqual(self.build(), 0)
+        receipt = self.run_upload(2)
+        self.assertEqual(receipt['status'], 'uploaded')
+        self.assertEqual([obj['name'].rsplit('.', 2)[-2] for obj in receipt['objects']], ['1', '2'])
+        self.assertEqual(self.run_upload(1)['status'], 'uploaded')
+        self.assertEqual(len(self.storage.writes), 2)
+
+    def test_median_registration_requires_median_build(self):
+        entry = self.reg['names']['solo-oak']
+        entry['aggregate'] = 'median'
+        entry['fingerprint'] = names.fingerprint(entry)
+        with self.assertRaisesRegex(ValueError, 'aggregation does not match'):
+            self.run_upload()
+        self.build_args.extend(['--aggregate', 'median'])
+        self.assertEqual(self.build(), 0)
+        self.assertEqual(self.run_upload()['status'], 'uploaded')
+
+    def test_upload_checks_registered_search_backend(self):
+        entry = self.reg['names']['solo-oak']
+        for search in ('exa', 'keenable'):
+            with self.subTest(search=search):
+                entry['members'][0]['options']['search_backend'] = search
+                entry['fingerprint'] = names.fingerprint(entry)
+                with self.assertRaisesRegex(ValueError, 'members do not match'):
+                    upload.submissions(self.root, self.reg, 'Example Team', None)
+                spec, = names.member_specs(self.reg, 'solo')
+                dest = Path(fb.member_dir_for_spec(self.root, spec))
+                self.member_path.rename(dest)
+                self.member_path = dest
+                self.build_args[self.build_args.index('--member') + 1] = spec
+                self.assertEqual(self.build(), 0)
+                _, files = upload.submissions(self.root, self.reg, 'Example Team', None)
+                self.assertEqual(len(files), 1)
 
     def test_retry_recovers_from_lost_response_without_overwriting(self):
         self.storage.fail_after_write = True
@@ -177,9 +228,70 @@ class UploadTest(unittest.TestCase):
         with patch.object(upload.names, 'load', return_value=self.reg), \
                 patch.object(upload, 'upload', side_effect=RuntimeError('authentication failed')), \
                 patch.object(upload.alert, 'send') as send:
-            self.assertEqual(upload.main(['--root', str(self.root)]), 1)
+            self.assertEqual(upload.main(['--root', str(self.root), '--set-number', '1']), 1)
         self.assertEqual(send.call_args.args[:2], ('forecastbench', 'upload FAILED'))
+        self.assertIn(f'--root {self.root} --set-number 1', send.call_args.args[2])
         self.assertEqual(send.call_args.kwargs['severity'], 'page')
+
+    def record_plan(self):
+        status.record(self.root, 'round', pid=0, sets=[
+            dict(number=1, name='solo', filename=self.path.name,
+                 members=names.member_specs(self.reg, 'solo'))])
+
+    def test_overdue_alert_deduplicates_and_retries_undelivered_page(self):
+        self.record_plan()
+        with patch.object(status, 'now', return_value=NOW):
+            status.record(self.root, 'validated', number=1, attempt=1)
+        with patch.object(status.alert, 'send', side_effect=[0, 1]) as send:
+            with patch.object(status, 'now', return_value=NOW + timedelta(seconds=599)):
+                status.check_pending(self.root)
+            send.assert_not_called()
+            with patch.object(status, 'now', return_value=NOW + timedelta(minutes=10)):
+                status.check_pending(self.root)
+                status.check_pending(self.root)
+                status.page_once(self.root, 1, 'upload FAILED', 'late failure')
+                status.check_pending(self.root)
+            self.assertEqual(send.call_count, 2)
+            self.assertIn('--set-number 1', send.call_args.args[2])
+
+    def test_delivered_failure_page_suppresses_watchdog(self):
+        self.record_plan()
+        with patch.object(status, 'now', return_value=NOW):
+            status.record(self.root, 'validated', number=1, attempt=1)
+        with patch.object(status, 'now', return_value=NOW + timedelta(minutes=11)), \
+                patch.object(upload.names, 'load', return_value=self.reg), \
+                patch.object(upload, 'upload', side_effect=TimeoutError()), \
+                patch.object(status.alert, 'send', return_value=1) as send:
+            self.assertEqual(upload.main(['--root', str(self.root), '--set-number', '1']), 1)
+            status.check_pending(self.root)
+            send.assert_called_once()
+            self.assertIn('upload failed', status.report(self.root, history_lines=True)[0])
+
+    def test_status_checks_receipt_content_destination_and_recovery(self):
+        self.record_plan()
+        self.run_upload(1)
+        staged = self.root / 'partial-upload-test' / DUE
+        staged.mkdir(parents=True)
+        (self.root / 'upload-receipt.json').rename(staged / 'upload-receipt.json')
+        with patch.object(upload, 'settings', return_value=(PREFIX, ACCOUNT)):
+            self.assertTrue(status.report(self.root)[1])
+            self.path.write_bytes(b'changed')
+            self.assertFalse(status.report(self.root)[1])
+        self.build()
+        with patch.object(upload, 'settings', return_value=('gs://wrong-bucket/team/binary', ACCOUNT)):
+            self.assertFalse(status.report(self.root)[1])
+
+    def test_status_displays_member_category_and_latest_success(self):
+        self.record_plan()
+        path = self.member_path / 'results.jsonl'
+        market = json.loads(path.read_text().splitlines()[0])
+        market['completed_at'] = NOW.isoformat()
+        path.write_text(json.dumps(market) + '\n{"torn"')
+        text, complete = status.report(self.root)
+        self.assertFalse(complete)
+        self.assertIn('dataset 0/1 required', text)
+        self.assertIn('workers 0', text)
+        self.assertIn(NOW.isoformat(), text)
 
     def test_personal_account_cannot_be_used_accidentally(self):
         with self.assertRaisesRegex(ValueError, 'dedicated service-account'):
@@ -216,35 +328,65 @@ class UploadTest(unittest.TestCase):
 
 
 class CronTest(unittest.TestCase):
-    def test_upload_runs_only_after_successful_round_and_failure_propagates(self):
-        source = Path(__file__).parents[1] / 'scripts/fb_cron.sh'
+    def test_cron_starts_delivery_and_propagates_failures(self):
+        source = Path(__file__).parents[1] / 'scripts'
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             scripts = root / 'scripts'
             scripts.mkdir()
-            cron = scripts / 'fb_cron.sh'
-            cron.write_text(source.read_text())
-            round_script = scripts / 'fb_round.sh'
-            round_script.write_text('#!/bin/bash\nexit "$FAKE_ROUND_RC"\n')
-            round_script.chmod(0o700)
-            fake_py = root / 'python'
-            fake_py.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$FAKE_CALLS"\n'
-                               'if [[ "$2" == forecastbench.upload ]]; then exit "$FAKE_UPLOAD_RC"; fi\n')
-            fake_py.chmod(0o700)
+            for name in ('fb_cron.sh', 'fb_round.sh'):
+                shutil.copy2(source / name, scripts / name)
+            def executable(name, body):
+                path = root / name
+                path.write_text('#!/bin/bash\n' + textwrap.dedent(body))
+                path.chmod(0o700)
+                return path
+
+            fake_py = executable('python', """
+                printf '%s\\n' "$*" >> "$FAKE_CALLS"
+                case "$2/$3" in
+                  forecastbench.names/conditions)
+                    echo submitted
+                    echo second
+                    if [[ "${4:-}" == --all ]]; then echo optional; fi ;;
+                  forecastbench.round_run/--root)
+                    if [[ "$FAKE_LATE" == 1 ]]; then sleep 0.1; fi
+                    if [[ "$FAKE_ROUND_RC" == 0 ]]; then
+                      touch "$4/logs/first-upload-confirmed" "$4/logs/upload-confirmed"
+                    fi
+                    exit "$FAKE_ROUND_RC" ;;
+                esac
+                exit 0
+            """)
+            executable('curl', 'exit 0\n')
+            executable('date', """
+                case "$*" in
+                  '-u +%F') echo 2026-11-22 ;;
+                  '-u +%s') echo "$FAKE_LATE" ;;
+                  '-u -d 2026-11-22 12:00 UTC +%s'|'-u -d 2026-11-22 20:00 UTC +%s') echo 1 ;;
+                  *) /usr/bin/date "$@" ;;
+                esac
+            """)
             conf = root / 'round.env'
-            conf.write_text(f'PY={shlex.quote(str(fake_py))}\nROUNDS_DIR={shlex.quote(str(root / "rounds"))}\n')
+            conf.write_text('panel_members() { echo "test member"; }\n')
             calls_path = root / 'calls'
-            env = dict(os.environ, FORECASTER_ROUND_ENV=str(conf), FAKE_CALLS=str(calls_path))
-            for build_rc, upload_rc, expected in ((0, 0, 0), (0, 1, 1), (1, 0, 1)):
-                calls_path.write_text('')
-                result = subprocess.run(['bash', str(cron), DUE],
-                                        env=dict(env, FAKE_ROUND_RC=str(build_rc), FAKE_UPLOAD_RC=str(upload_rc)),
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, expected, result.stderr)
-                calls = calls_path.read_text()
-                self.assertEqual('forecastbench.upload' in calls, build_rc == 0)
-                if build_rc:
-                    self.assertIn('run FAILED', calls)
+            env = dict(os.environ, FORECASTER_ROUND_ENV=str(conf), FAKE_CALLS=str(calls_path),
+                       PATH=f"{root}:{os.environ['PATH']}", PY=str(fake_py), ROUNDS_DIR=str(root / 'rounds'),
+                       FB_ORG='Example Team', CALLS='12', SAMPLE='', PI_CODING_AGENT_DIR=str(root / 'pi'))
+            for expected, late in ((0, 0), (4, 0), (1, 0), (0, 1)):
+                with self.subTest(expected=expected, late=late):
+                    calls_path.write_text('')
+                    result = subprocess.run(
+                        ['bash', str(scripts / 'fb_cron.sh'), DUE],
+                        env=dict(env, FAKE_ROUND_RC=str(expected), FAKE_LATE=str(late)),
+                        capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    calls = calls_path.read_text()
+                    self.assertIn('forecastbench.round_run', calls)
+                    self.assertIn(f'--due {DUE} --calls 12 --upload', calls)
+                    self.assertEqual('run FAILED' in calls, expected == 1)
+                    if late:
+                        self.assertLess(calls.index('forecastbench.progress'), calls.index('upload still pending'))
 
 
 if __name__ == '__main__':
